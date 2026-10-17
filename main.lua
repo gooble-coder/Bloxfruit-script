@@ -15,7 +15,7 @@ local Env = getgenv and getgenv() or _G
 if type(Env.AevrixCleanup) == "function" then
     pcall(Env.AevrixCleanup)
 end
-
+-- Shut down any standalone Fruits test to avoid duplicate UIs/loops.
 if type(Env.AevrixEggCleanup) == "function" then
     pcall(Env.AevrixEggCleanup)
     Env.AevrixEggCleanup = nil
@@ -177,8 +177,10 @@ end
 
 local function BossName(value)
     local name = Normal(value)
-
+    -- Quest data sometimes prefixes boss names with "The".
+    local noThe = name:gsub("^the", "")
     return Bosses[name] == true
+        or Bosses[noThe] == true
         or name:find("boss",1,true) ~= nil
 end
 
@@ -568,6 +570,20 @@ local function QuestIsBoss(name)
         or BossName(name)
 end
 
+-- Always classify the *target*, not just the quest ID. Some quest IDs
+-- contain both regular and boss stages (e.g. JungleQuest).
+local function IsBossQuestRecord(record)
+    if not record then return false end
+    if record.Boss == true
+        or QuestIsBoss(record.Enemy)
+        or BossName(record.ID)
+    then
+        return true
+    end
+    local npc = record.Enemy and FindEnemy(record.Enemy,false)
+    return npc ~= nil and BossNPC(npc) or false
+end
+
 local function FindQuestRecord(name)
     for _,quest in ipairs(QuestList) do
         if Normal(quest.Enemy) == Normal(name)
@@ -584,7 +600,8 @@ local function SelectQuest(normalOnly)
 
     for _,quest in ipairs(QuestList) do
         if quest.LevelReq <= level then
-            if quest.Boss then
+            if IsBossQuestRecord(quest) then
+                quest.Boss = true
                 if not normalOnly
                     and not boss
                     and BossAlive(quest.Enemy)
@@ -729,6 +746,22 @@ local function ObjectiveProgress(text,quest)
 end
 
 -- QUEST STATE
+--
+-- RequestSent:
+--   Prevents repeating StartQuest for a quest.
+--
+-- FarmingReady:
+--   Lets movement start independently of the UI.
+--
+-- GuiConfirmed:
+--   Records that this specific quest was seen.
+--
+-- Completion:
+--   May be detected via the quest panel,
+--   notifications, or tracked NPC deaths.
+--
+-- Completing a quest no longer requires
+-- GuiConfirmed to be true.
 
 local function ResetCombat()
     S.CombatTarget = nil
@@ -771,15 +804,17 @@ local function NewQuest(record,adopted)
 
     local now = os.clock()
 
+    local isBoss = IsBossQuestRecord(record)
     local quest = {
         ID = record.ID,
         Index = record.Index,
         Enemy = record.Enemy,
         Count = record.Count,
-        Boss = record.Boss,
+        Boss = isBoss,
 
-        NoQuest = record.Boss and not A.AcceptBossQuest and not adopted,
-        FarmingReady = adopted == true or (record.Boss and not A.AcceptBossQuest),
+        -- Boss farm continues, but boss quests cannot start when OFF.
+        NoQuest = isBoss and not A.AcceptBossQuest and not adopted,
+        FarmingReady = adopted == true or (isBoss and not A.AcceptBossQuest),
         GuiConfirmed = adopted == true,
 
         RequestSent = false,
@@ -836,7 +871,7 @@ local function RequestQuest(quest)
         or quest.RequestSent
         or quest.RequestBusy
         or quest.GuiConfirmed
-        or (quest.Boss and not A.AcceptBossQuest)
+        or (not A.AcceptBossQuest and IsBossQuestRecord(quest))
         or not quest.ID
         or not quest.Index
     then
@@ -847,6 +882,7 @@ local function RequestQuest(quest)
         return
     end
 
+    -- ONE StartQuest request per quest.
     quest.RequestSent = true
     quest.RequestBusy = true
     quest.RequestedAt = os.clock()
@@ -858,12 +894,17 @@ local function RequestQuest(quest)
             or not A.Farm
             or S.Quest ~= quest
             or S.QuestSerial ~= serial
+            or (not A.AcceptBossQuest and IsBossQuestRecord(quest))
         then
             quest.RequestBusy = false
             return
         end
 
+        -- Last guard before the remote: toggling OFF cancels pending calls.
         local ok,result = pcall(function()
+            if not A.AcceptBossQuest and IsBossQuestRecord(quest) then
+                return false
+            end
             return Comm:InvokeServer(
                 "StartQuest",
                 quest.ID,
@@ -884,6 +925,9 @@ local function RequestQuest(quest)
                 result
             )
         end
+
+        -- Never clear RequestSent here.
+        -- Clearing it caused the quest-reset loop.
     end)
 end
 
@@ -1053,6 +1097,8 @@ local function UpdateQuest()
 
     local quest = S.Quest
 
+    -- Boss farming without boss quest acceptance is a separate mode:
+    -- don't request, retry, or abandon boss quests in this mode.
     if quest and quest.NoQuest then
         if not BossAlive(quest.Enemy) then
             S.BossCooldown[Normal(quest.Enemy)] = now+5
@@ -1061,6 +1107,7 @@ local function UpdateQuest()
         return
     end
 
+    -- Adopt an existing active quest.
     if not quest and visible then
         if detected then
             local record = FindQuestRecord(detected)
@@ -1078,6 +1125,7 @@ local function UpdateQuest()
         return
     end
 
+    -- No quest locked: immediately select the next one.
     if not quest then
         if visible then return end
 
@@ -1098,6 +1146,7 @@ local function UpdateQuest()
         return
     end
 
+    -- Boss abandon recovery.
     if quest.Abandoning then
         if not visible then
             quest.AbandonHidden =
@@ -1141,6 +1190,8 @@ local function UpdateQuest()
             and Normal(detected) ~= Normal(quest.Enemy)
             and not quest.GuiConfirmed
         then
+            -- Adopt the quest the game is actually showing,
+            -- rather than request over it.
             local record = FindQuestRecord(detected)
 
             if record then
@@ -1180,6 +1231,8 @@ local function UpdateQuest()
         quest.HiddenSince = quest.HiddenSince or now
     end
 
+    -- Completion notifications can arrive after
+    -- the quest panel has already disappeared.
     if CompletionText(text) then
         quest.CompletionNotice = true
     end
@@ -1190,6 +1243,10 @@ local function UpdateQuest()
 
     local completion = HasCompletionEvidence(quest)
 
+    -- PRIMARY COMPLETION:
+    -- Actual completion evidence and old panel gone.
+    --
+    -- Does NOT require GuiConfirmed.
     if QuestHasStarted(quest)
         and not visible
         and completion
@@ -1199,6 +1256,12 @@ local function UpdateQuest()
         return
     end
 
+    -- SECONDARY COMPLETION:
+    -- The actual quest UI was confirmed earlier,
+    -- farming happened, and that UI remained gone.
+    --
+    -- This handles quests that close before N/N
+    -- can be read from the display.
     if quest.GuiConfirmed
         and quest.EverVisible
         and quest.FarmStarted
@@ -1210,6 +1273,12 @@ local function UpdateQuest()
         return
     end
 
+    -- FALLBACK COMPLETION:
+    -- If the quest GUI was never detectable,
+    -- use tracked kills after one-shot StartQuest.
+    --
+    -- This does not restart the quest after one kill:
+    -- every required kill must have been tracked.
     if not quest.GuiConfirmed
         and quest.RequestSent
         and quest.Count
@@ -1221,6 +1290,7 @@ local function UpdateQuest()
         return
     end
 
+    -- Boss recovery remains separate from normal quests.
     if quest.Boss then
         if BossAlive(quest.Enemy) then
             quest.BossMissingSince = nil
@@ -1248,6 +1318,15 @@ local function UpdateQuest()
         return
     end
 
+    -- NORMAL QUEST LOCK
+    --
+    -- There are deliberately no StartQuest
+    -- retries here.
+    --
+    -- Killing an NPC does not unlock the quest.
+    -- A boss appearing does not change this quest.
+    --
+    -- Movement can start after the original request.
     if not quest.FarmingReady
         and quest.RequestSent
         and now-quest.RequestedAt >= 0.65
@@ -1325,6 +1404,7 @@ local function RemoteAttack(npc)
 
     S.LastRemote = os.clock()
 
+    -- Working 40-stud attack method.
     pcall(function()
         RegisterAttack:FireServer(0.1)
         RegisterHit:FireServer(part,{{npc,part}})
@@ -1544,6 +1624,8 @@ local function UpdateFarm(dt)
         return true
     end
 
+    -- Moving and attacking are independent
+    -- of the quest GUI.
     if not quest.FarmingReady then
         if quest.RequestSent
             and os.clock()-quest.RequestedAt >= 0.65
@@ -1626,6 +1708,8 @@ local function UpdateFarm(dt)
             npcRoot.Position
     end
 
+    -- Track each target until the quest finishes.
+    -- Connections aren't discarded between NPCs.
     TrackNPC(npc,quest)
 
     if S.CombatTarget ~= npc then
@@ -2112,9 +2196,10 @@ local function DistributeStats()
     S.StatBusy = false
 end
 
-local Notify = function() end
+local Notify = function() end -- Assigned after the Fluent library loads.
 
--- FRUITS
+-- FRUITS: stock, Gacha availability and NPC movement.
+-- Shares the main movement engine, rather than creating a competing flight.
 
 local Fruits = {
     AutoRoll = false,
@@ -2176,7 +2261,20 @@ local function FruitNPC(kind)
     local _,_,me = Char()
     local best,bestDistance = nil,math.huge
     for _,npc in ipairs(workspace:GetDescendants()) do
-        if npc:IsA("Model") and npc.Name:lower() == wanted:lower() then
+        local n = Normal(npc.Name)
+        local matches = (kind == "Gacha" and
+            (n == "bloxfruitgacha" or n == "bloxfruitsgacha" or n == "zioles"))
+            or (kind == "Dealer" and
+            (n == "bloxfruitdealer" or n == "bloxfruitsdealer"))
+        -- Some shop models are generic; use an explicit NPC-name attribute.
+        if not matches and npc:IsA("Model") then
+            local label = npc:GetAttribute("NPCName") or npc:GetAttribute("DisplayName")
+            local labelName = Normal(label)
+            matches = (kind == "Gacha" and
+                (labelName == "bloxfruitgacha" or labelName == "zioles"))
+                or (kind == "Dealer" and labelName == "bloxfruitdealer")
+        end
+        if npc:IsA("Model") and matches then
             local part = Root(npc) or npc:FindFirstChild("Head")
             if part and part:IsA("BasePart") then
                 local distance = me and (me.Position-part.Position).Magnitude or 0
@@ -2189,15 +2287,30 @@ local function FruitNPC(kind)
     return best
 end
 
-local function FruitMiddleTown()
-    if game.PlaceId ~= 2753915549 then return nil end
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = {P.Character}
-    params.IgnoreWater = true
-    local hit = workspace:Raycast(Vector3.new(-656,1000,1574),
-        Vector3.new(0,-1500,0),params)
-    return hit and hit.Position+Vector3.new(0,5,0) or nil
+-- Sea-specific fallback positions. These are navigation waypoints,
+-- not guaranteed NPC interaction points; exact NPCs are preferred.
+local FruitWaypoints = {
+    [2753915549] = { -- First Sea: Middle Town
+        Gacha = Vector3.new(-656,22,1574),
+        Dealer = Vector3.new(-923,12,1609)
+    },
+    [4442272183] = { -- Second Sea: Cafe, Kingdom of Rose
+        Gacha = Vector3.new(-400,74,317),
+        Dealer = Vector3.new(-451,74,356)
+    },
+    [7449423635] = { -- Third Sea: Mansion, Floating Turtle
+        Gacha = Vector3.new(-12491,337,-7449),
+        Dealer = Vector3.new(-12511,337,-7448)
+    }
+}
+local FruitAreaNames = {
+    [2753915549] = "Middle Town",
+    [4442272183] = "Cafe",
+    [7449423635] = "Mansion"
+}
+local function FruitFallback(kind)
+    local points = FruitWaypoints[game.PlaceId]
+    return points and points[kind] or nil
 end
 
 local function EndFruitFlight(success,message)
@@ -2207,6 +2320,7 @@ local function EndFruitFlight(success,message)
     flight.Message = message
     Fruits.FlightStatus = message or (success and "Arrived" or "Flight stopped")
     S.FruitFlight = nil
+    -- Reset the shared flight's momentum before farming/chests resume.
     ClearFlight()
     if not (A.Farm or A.Chest) then
         RestoreNoclip()
@@ -2221,14 +2335,14 @@ local function BeginFruitFlight(kind,automatic)
     if not hrp then return nil,"Character not ready" end
     local npc = FruitNPC(kind)
     local target = npc and (npc.Position+Vector3.new(4,3,0))
-        or FruitMiddleTown()
-    if not target then return nil,"NPC not loaded in this sea" end
+        or FruitFallback(kind)
+    if not target then return nil,"Unsupported sea / NPC unavailable" end
     local flight = {
         Kind = kind, Automatic = automatic == true,
         Exact = npc ~= nil, Target = target,
         CruiseY = math.max(hrp.Position.Y,target.Y)+80,
         Phase = "Climb", Deadline = os.clock()+180,
-        Done = false, Success = false
+        LastRefine = 0, Done = false, Success = false
     }
     S.FruitFlight = flight
     Fruits.FlightStatus = "Flying to "..FruitNPCNames[kind]
@@ -2242,6 +2356,18 @@ local function UpdateFruitFlight(dt)
     if not hrp or os.clock() >= flight.Deadline then
         EndFruitFlight(false,"Flight timed out / character reset")
         return
+    end
+    -- When approaching a streamed-in area, replace approximate waypoints
+    -- with the actual NPC, then land at the correct shop.
+    if not flight.Exact and os.clock()-flight.LastRefine > 1.5 then
+        flight.LastRefine = os.clock()
+        local npc = FruitNPC(flight.Kind)
+        if npc then
+            flight.Exact = true
+            flight.Target = npc.Position+Vector3.new(4,3,0)
+            flight.CruiseY = math.max(hrp.Position.Y,flight.Target.Y)+80
+            flight.Phase = "Climb"
+        end
     end
     local goal,radius
     if flight.Phase == "Climb" then
@@ -2263,6 +2389,7 @@ local function UpdateFruitFlight(dt)
     elseif flight.Phase == "Cruise" then
         flight.Phase = "Land"
     elseif not flight.Exact then
+        -- On arrival in Middle Town, resolve the exact NPC again.
         local npc = FruitNPC(flight.Kind)
         if npc then
             flight.Exact = true
@@ -2270,7 +2397,9 @@ local function UpdateFruitFlight(dt)
             flight.CruiseY = math.max(hrp.Position.Y,flight.Target.Y)+80
             flight.Phase = "Climb"
         else
-            EndFruitFlight(false,"Reached town; exact NPC not loaded")
+            EndFruitFlight(false,"Reached "..
+                (FruitAreaNames[game.PlaceId] or "area")..
+                "; exact NPC not loaded")
         end
     else
         EndFruitFlight(true,"Arrived at "..FruitNPCNames[flight.Kind])
@@ -2362,7 +2491,7 @@ local function FruitRollCycle()
         or not S.Running or S.FruitFlight
         or os.clock() < Fruits.NextAttempt then return end
     Fruits.RollBusy = true
-    S.FruitPurchaseLock = true
+    S.FruitPurchaseLock = true -- Prevent farming from moving away mid-purchase.
     Fruits.NextAttempt = os.clock()+120
     task.spawn(function()
         local ok,success,message = pcall(function()
@@ -2774,7 +2903,14 @@ local function Toggle(tab,id,title,key)
 
             elseif key == "AcceptBossQuest" then
                 A.AcceptBossQuest = value
-                if A.Farm and S.Quest and S.Quest.Boss then
+                if A.Farm and S.Quest and IsBossQuestRecord(S.Quest) then
+                    -- If an earlier version already accepted a boss quest,
+                    -- abandon it once when switching this option OFF.
+                    if not value and QuestVisible() then
+                        task.spawn(function()
+                            pcall(function() Comm:InvokeServer("AbandonQuest") end)
+                        end)
+                    end
                     ResetQuest()
                 end
 
@@ -2921,8 +3057,7 @@ Slider(
     "Points",1,100
 )
 
--- Fruits tab
-
+-- Fruits tab: no second window or duplicated Fluent library.
 local function FruitParagraph(id,title,initial)
     Fruits.Paragraphs[id] = FruitsTab:CreateParagraph(id,{
         Title = title, Content = initial
@@ -2991,3 +3126,4 @@ Drop(
 Window:SelectTab(1)
 
 Notify("Loaded","Auto Farm + Fruits")
+print("[Aevrix Hub] Loaded")
