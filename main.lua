@@ -1,6 +1,4 @@
--- Aevrix Hub v13.0
--- Quest completion lock rebuilt.
--- Keeps 40-stud combat, smooth flight, noclip,
+
 -- Auto Chest, ESP, Auto Skills and Auto Stats.
 
 local Players = game:GetService("Players")
@@ -1898,7 +1896,7 @@ end
 
 local Window = Lib:CreateWindow({
     Title = "Aevrix Hub",
-    SubTitle = "v13.0",
+    
     TabWidth = 145,
     Size = UDim2.fromOffset(650,455),
     Resize = true,
@@ -2093,5 +2091,5 @@ Drop(
 
 Window:SelectTab(1)
 
-Notify("Loaded","Aevrix Hub v13.0")
-print("[Aevrix Hub] v13.0 loaded")
+Notify("Loaded","Aevrix Hub")
+print("[Aevrix Hub]  loaded")
