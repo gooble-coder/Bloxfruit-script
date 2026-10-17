@@ -1,4 +1,6 @@
-
+-- Aevrix Hub
+-- Blox Fruits Auto Farm
+-- Full quest-cycle fix
 
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
@@ -6,6 +8,7 @@ local Run = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 local VU = game:GetService("VirtualUser")
 local Core = game:GetService("CoreGui")
+
 local P = Players.LocalPlayer
 local Env = getgenv and getgenv() or _G
 
@@ -20,6 +23,7 @@ end)
 
 local Comm = RS:WaitForChild("Remotes"):WaitForChild("CommF_")
 local Quests = require(RS:WaitForChild("Quests"))
+
 local Net = RS:FindFirstChild("Modules")
 Net = Net and Net:FindFirstChild("Net")
 
@@ -33,16 +37,20 @@ local A = {
     ChestESP = false,
     Skills = false,
     Stats = false,
+
     Hotkey = "F",
     TargetLevel = 2800,
     Speed = 320,
     ChestSpeed = 320,
+
     Weapon = "Melee",
     Range = 12,
     Delay = 0.15,
     SkillCooldown = 6,
+
     Points = 1,
     SelectedStats = {Melee = true},
+
     PlayerColor = "Cyan",
     ChestColor = "Gold"
 }
@@ -50,24 +58,30 @@ local A = {
 local S = {
     Running = true,
     Connections = {},
+    Watched = {},
     Collisions = {},
+
     Highlights = {},
     Labels = {},
+
     Chests = {},
     ChestDone = {},
     ChestFailed = {},
+
     SpawnMemory = {},
     SkillTimes = {},
     BossCooldown = {},
 
     Velocity = Vector3.zero,
     Updating = false,
+
     StatBusy = false,
     StatIndex = 1,
     SkillIndex = 0,
 
     Quest = nil,
     QuestSerial = 0,
+
     Target = nil,
     Spawn = nil,
     ChestTarget = nil,
@@ -87,12 +101,22 @@ local S = {
 }
 
 local StatNames = {
-    "Melee", "Defense", "Sword", "Gun", "Blox Fruit"
+    "Melee",
+    "Defense",
+    "Sword",
+    "Gun",
+    "Blox Fruit"
 }
 
 local ColorNames = {
-    "Cyan", "Gold", "Red", "Green",
-    "Blue", "Purple", "Pink", "White"
+    "Cyan",
+    "Gold",
+    "Red",
+    "Green",
+    "Blue",
+    "Purple",
+    "Pink",
+    "White"
 }
 
 local Colors = {
@@ -107,13 +131,14 @@ local Colors = {
 }
 
 local Melee = {}
-for n in ("combat,darkstep,blackleg,electric,waterkungfu,dragonbreath,superhuman,deathstep,sharkmankarate,electricclaw,dragontalon,godhuman,sanguineart"):gmatch("[^,]+") do
-    Melee[n] = true
+local Bosses = {}
+
+for name in ("combat,darkstep,blackleg,electric,waterkungfu,dragonbreath,superhuman,deathstep,sharkmankarate,electricclaw,dragontalon,godhuman,sanguineart"):gmatch("[^,]+") do
+    Melee[name] = true
 end
 
-local Bosses = {}
-for n in ("gorillaking,bobby,yeti,mobleader,viceadmiral,warden,chiefwarden,swan,magmaadmiral,fishmanlord,wysper,thundergod,cyborg,diamond,jeremy,fajita,donswan,smokeadmiral,awakenediceadmiral,tidekeeper,darkbeard,cursedcaptain,order,stone,islandempress,kiloadmiral,captainelephant,beautifulpirate,longma,soulreaper,cakequeen,cakeprince,doughking,ripindra,saberexpert,greybeard,saw,iceadmiral,doughprince,leviathan,terrorshark"):gmatch("[^,]+") do
-    Bosses[n] = true
+for name in ("gorillaking,bobby,yeti,mobleader,viceadmiral,warden,chiefwarden,swan,magmaadmiral,fishmanlord,wysper,thundergod,cyborg,diamond,jeremy,fajita,donswan,smokeadmiral,awakenediceadmiral,tidekeeper,darkbeard,cursedcaptain,order,stone,islandempress,kiloadmiral,captainelephant,beautifulpirate,longma,soulreaper,cakequeen,cakeprince,doughking,ripindra,saberexpert,greybeard,saw,iceadmiral,doughprince,leviathan,terrorshark"):gmatch("[^,]+") do
+    Bosses[name] = true
 end
 
 local Spawns = {
@@ -132,68 +157,77 @@ local Spawns = {
     prisonerguard = Vector3.new(4870,6,740)
 }
 
-local function Normal(v)
-    return tostring(v or ""):lower()
+-- HELPERS
+
+local function Normal(value)
+    return tostring(value or ""):lower()
         :gsub("%[.*", "")
         :gsub("[^%w]", "")
 end
 
-local function CleanText(v)
-    return tostring(v or ""):gsub("<.->", "")
+local function CleanText(value)
+    return tostring(value or ""):gsub("<.->", "")
 end
 
-local function BossName(v)
-    local n = Normal(v)
-    return Bosses[n] == true
-        or n:find("boss",1,true) ~= nil
+local function BossName(value)
+    local name = Normal(value)
+
+    return Bosses[name] == true
+        or name:find("boss",1,true) ~= nil
 end
 
-local function Root(m)
-    return m and (
-        m:FindFirstChild("HumanoidRootPart")
-        or m.PrimaryPart
+local function Root(model)
+    return model and (
+        model:FindFirstChild("HumanoidRootPart")
+        or model.PrimaryPart
     )
 end
 
 local function Char()
-    local c = P.Character
-    local h = c and c:FindFirstChildOfClass("Humanoid")
-    local r = c and c:FindFirstChild("HumanoidRootPart")
+    local character = P.Character
+    local humanoid = character
+        and character:FindFirstChildOfClass("Humanoid")
+    local root = character
+        and character:FindFirstChild("HumanoidRootPart")
 
-    if h and h.Health > 0 and r then
-        return c,h,r
+    if humanoid and humanoid.Health > 0 and root then
+        return character,humanoid,root
     end
 end
 
 local function Level()
-    local d = P:FindFirstChild("Data")
-    local v = d and d:FindFirstChild("Level")
-    return v and tonumber(v.Value) or 1
+    local data = P:FindFirstChild("Data")
+    local value = data and data:FindFirstChild("Level")
+
+    return value and tonumber(value.Value) or 1
 end
 
 local function EnemyFolder()
     return workspace:FindFirstChild("Enemies")
 end
 
-local function Alive(n)
-    local h = n and n:FindFirstChildOfClass("Humanoid")
-    local r = Root(n)
+local function Alive(npc)
+    local humanoid = npc
+        and npc:FindFirstChildOfClass("Humanoid")
+    local root = Root(npc)
 
-    return n
-        and n:IsA("Model")
-        and n.Parent == EnemyFolder()
-        and h and h.Health > 0
-        and r and r:IsDescendantOf(workspace)
+    return npc
+        and npc:IsA("Model")
+        and npc.Parent == EnemyFolder()
+        and humanoid
+        and humanoid.Health > 0
+        and root
+        and root:IsDescendantOf(workspace)
 end
 
-local function BossNPC(n)
-    if not n then return false end
-    if BossName(n.Name) then return true end
+local function BossNPC(npc)
+    if not npc then return false end
+    if BossName(npc.Name) then return true end
 
     for _,key in ipairs({
         "Boss","IsBoss","RaidBoss","IsRaidBoss"
     }) do
-        if n:GetAttribute(key) == true then
+        if npc:GetAttribute(key) == true then
             return true
         end
     end
@@ -203,9 +237,11 @@ end
 
 local function FindEnemy(name,bossOnly)
     local folder = EnemyFolder()
-    local _,_,pr = Char()
+    local _,_,playerRoot = Char()
 
-    if not folder or not name then return nil end
+    if not folder or not name then
+        return nil
+    end
 
     local best,closest
 
@@ -214,12 +250,12 @@ local function FindEnemy(name,bossOnly)
             and Normal(npc.Name) == Normal(name)
             and (not bossOnly or BossNPC(npc))
         then
-            local d = pr
-                and (pr.Position-Root(npc).Position).Magnitude
+            local distance = playerRoot
+                and (playerRoot.Position-Root(npc).Position).Magnitude
                 or 0
 
-            if not closest or d < closest then
-                best,closest = npc,d
+            if not closest or distance < closest then
+                best,closest = npc,distance
             end
         end
     end
@@ -242,10 +278,10 @@ end
 -- MOVEMENT
 
 local function Noclip()
-    local c = P.Character
-    if not c then return end
+    local character = P.Character
+    if not character then return end
 
-    for _,part in ipairs(c:GetDescendants()) do
+    for _,part in ipairs(character:GetDescendants()) do
         if part:IsA("BasePart") then
             if S.Collisions[part] == nil then
                 S.Collisions[part] = part.CanCollide
@@ -257,10 +293,10 @@ local function Noclip()
 end
 
 local function RestoreNoclip()
-    for part,old in pairs(S.Collisions) do
+    for part,original in pairs(S.Collisions) do
         pcall(function()
             if part.Parent then
-                part.CanCollide = old
+                part.CanCollide = original
             end
         end)
 
@@ -269,10 +305,10 @@ local function RestoreNoclip()
 end
 
 local function ClearFlight()
-    for _,obj in ipairs({S.BV,S.BG}) do
-        if obj then
+    for _,object in ipairs({S.BV,S.BG}) do
+        if object then
             pcall(function()
-                obj:Destroy()
+                object:Destroy()
             end)
         end
     end
@@ -282,35 +318,38 @@ local function ClearFlight()
 end
 
 local function Flight()
-    local _,h,r = Char()
-    if not r or not Moving() then return false end
+    local _,humanoid,root = Char()
 
-    if S.FlightRoot ~= r
+    if not root or not Moving() then
+        return false
+    end
+
+    if S.FlightRoot ~= root
         or not S.BV or not S.BV.Parent
         or not S.BG or not S.BG.Parent
     then
         ClearFlight()
 
-        local bv = Instance.new("BodyVelocity")
-        bv.Name = "AevrixFlight"
-        bv.MaxForce = Vector3.new(1e9,1e9,1e9)
-        bv.P = 15000
-        bv.Velocity = Vector3.zero
-        bv.Parent = r
+        local velocity = Instance.new("BodyVelocity")
+        velocity.Name = "AevrixFlight"
+        velocity.MaxForce = Vector3.new(1e9,1e9,1e9)
+        velocity.P = 15000
+        velocity.Velocity = Vector3.zero
+        velocity.Parent = root
 
-        local bg = Instance.new("BodyGyro")
-        bg.Name = "AevrixFacing"
-        bg.MaxTorque = Vector3.new(1e9,1e9,1e9)
-        bg.P = 10000
-        bg.D = 1400
-        bg.CFrame = r.CFrame
-        bg.Parent = r
+        local gyro = Instance.new("BodyGyro")
+        gyro.Name = "AevrixFacing"
+        gyro.MaxTorque = Vector3.new(1e9,1e9,1e9)
+        gyro.P = 10000
+        gyro.D = 1400
+        gyro.CFrame = root.CFrame
+        gyro.Parent = root
 
-        S.BV,S.BG,S.FlightRoot = bv,bg,r
+        S.BV,S.BG,S.FlightRoot = velocity,gyro,root
     end
 
-    h.AutoRotate = false
-    h:Move(Vector3.zero)
+    humanoid.AutoRotate = false
+    humanoid:Move(Vector3.zero)
 
     return true
 end
@@ -318,37 +357,37 @@ end
 local function Move(goal,speed,dt,face)
     if not goal or not Flight() then return end
 
-    local _,_,r = Char()
-    if not r then return end
+    local _,_,root = Char()
+    if not root then return end
 
     dt = math.clamp(dt,1/240,0.1)
 
-    local delta = goal-r.Position
-    local dist = delta.Magnitude
+    local delta = goal-root.Position
+    local distance = delta.Magnitude
 
-    local desired = dist > 0.15
-        and delta.Unit*math.min(speed,dist*7)
+    local desired = distance > 0.15
+        and delta.Unit*math.min(speed,distance*7)
         or Vector3.zero
 
     S.Velocity = S.Velocity:Lerp(
         desired,
-        1-math.exp(-(dist > 25 and 11 or 15)*dt)
+        1-math.exp(-(distance > 25 and 11 or 15)*dt)
     )
 
     S.BV.Velocity = S.Velocity
 
     local look = face
         and Vector3.new(
-            face.X-r.Position.X,
+            face.X-root.Position.X,
             0,
-            face.Z-r.Position.Z
+            face.Z-root.Position.Z
         )
         or Vector3.new(S.Velocity.X,0,S.Velocity.Z)
 
     if look.Magnitude > 0.05 then
         S.BG.CFrame = CFrame.lookAt(
-            r.Position,
-            r.Position+look.Unit
+            root.Position,
+            root.Position+look.Unit
         )
     end
 end
@@ -365,13 +404,16 @@ local function Stop()
     ClearFlight()
     RestoreNoclip()
 
-    local _,h = Char()
-    if h then h.AutoRotate = true end
+    local _,humanoid = Char()
+
+    if humanoid then
+        humanoid.AutoRotate = true
+    end
 
     S.Target,S.ChestTarget = nil,nil
 end
 
--- SPAWN LOOKUP
+-- SPAWN TRACKING
 
 local function RememberNPCs()
     local folder = EnemyFolder()
@@ -385,15 +427,17 @@ local function RememberNPCs()
 end
 
 local function FindSpawn(name)
-    if not name or BossName(name) then return nil end
+    if not name or BossName(name) then
+        return nil
+    end
 
-    local _,_,r = Char()
-    if not r then return nil end
+    local _,_,playerRoot = Char()
+    if not playerRoot then return nil end
 
     local folders = {}
-    local world = workspace:FindFirstChild("_WorldOrigin")
+    local worldOrigin = workspace:FindFirstChild("_WorldOrigin")
 
-    for _,parent in ipairs({workspace,world}) do
+    for _,parent in ipairs({workspace,worldOrigin}) do
         if parent then
             for _,key in ipairs({
                 "EnemySpawns","NPCSpawns","MobSpawns"
@@ -407,42 +451,43 @@ local function FindSpawn(name)
         end
     end
 
-    local best,dist
+    local best,closest
     local wanted = Normal(name)
 
     for _,folder in ipairs(folders) do
-        for _,obj in ipairs(folder:GetDescendants()) do
-            if obj:IsA("BasePart")
-                or obj:IsA("Attachment")
+        for _,object in ipairs(folder:GetDescendants()) do
+            if object:IsA("BasePart")
+                or object:IsA("Attachment")
             then
-                local part = obj:IsA("Attachment")
-                    and obj.Parent or obj
+                local part = object:IsA("Attachment")
+                    and object.Parent or object
 
                 if part and part:IsA("BasePart") then
                     local found = false
 
-                    for _,n in ipairs({
-                        obj.Name,
+                    for _,candidate in ipairs({
+                        object.Name,
                         part.Name,
-                        obj:GetAttribute("EnemyName") or "",
-                        obj:GetAttribute("MobName") or "",
+                        object:GetAttribute("EnemyName") or "",
+                        object:GetAttribute("MobName") or "",
                         part:GetAttribute("EnemyName") or ""
                     }) do
-                        if Normal(n) == wanted then
+                        if Normal(candidate) == wanted then
                             found = true
                             break
                         end
                     end
 
                     if found then
-                        local pos = obj:IsA("Attachment")
-                            and obj.WorldPosition
+                        local position = object:IsA("Attachment")
+                            and object.WorldPosition
                             or part.Position
 
-                        local d = (r.Position-pos).Magnitude
+                        local distance =
+                            (playerRoot.Position-position).Magnitude
 
-                        if not dist or d < dist then
-                            best,dist = pos,d
+                        if not closest or distance < closest then
+                            best,closest = position,distance
                         end
                     end
                 end
@@ -450,7 +495,9 @@ local function FindSpawn(name)
         end
     end
 
-    return best or S.SpawnMemory[wanted] or Spawns[wanted]
+    return best
+        or S.SpawnMemory[wanted]
+        or Spawns[wanted]
 end
 
 -- QUEST DATABASE
@@ -461,15 +508,15 @@ local BossQuestNames = {}
 
 for id,stages in pairs(Quests) do
     if type(stages) == "table" then
-        for index,q in pairs(stages) do
+        for index,record in pairs(stages) do
             if type(index) == "number"
-                and type(q) == "table"
-                and type(q.LevelReq) == "number"
-                and type(q.Task) == "table"
+                and type(record) == "table"
+                and type(record.LevelReq) == "number"
+                and type(record.Task) == "table"
             then
                 local enemy,count,total = nil,nil,0
 
-                for name,amount in pairs(q.Task) do
+                for name,amount in pairs(record.Task) do
                     if type(name) == "string"
                         and type(amount) == "number"
                         and amount > 0
@@ -482,19 +529,18 @@ for id,stages in pairs(Quests) do
                 if total == 1 then
                     local boss = BossName(enemy)
                         or BossName(id)
-                        or BossName(q.Name)
-                        or BossName(q.Title)
+                        or BossName(record.Name)
+                        or BossName(record.Title)
 
-                    local record = {
+                    table.insert(QuestList,{
                         ID = id,
                         Index = index,
                         Enemy = enemy,
                         Count = count,
-                        LevelReq = q.LevelReq,
+                        LevelReq = record.LevelReq,
                         Boss = boss
-                    }
+                    })
 
-                    table.insert(QuestList,record)
                     QuestNames[enemy] = true
 
                     if boss then
@@ -516,11 +562,11 @@ local function QuestIsBoss(name)
 end
 
 local function FindQuestRecord(name)
-    for _,q in ipairs(QuestList) do
-        if Normal(q.Enemy) == Normal(name)
-            and q.LevelReq <= Level()
+    for _,quest in ipairs(QuestList) do
+        if Normal(quest.Enemy) == Normal(name)
+            and quest.LevelReq <= Level()
         then
-            return q
+            return quest
         end
     end
 end
@@ -529,17 +575,17 @@ local function SelectQuest(normalOnly)
     local normal,boss
     local level = Level()
 
-    for _,q in ipairs(QuestList) do
-        if q.LevelReq <= level then
-            if q.Boss then
+    for _,quest in ipairs(QuestList) do
+        if quest.LevelReq <= level then
+            if quest.Boss then
                 if not normalOnly
                     and not boss
-                    and BossAlive(q.Enemy)
+                    and BossAlive(quest.Enemy)
                 then
-                    boss = q
+                    boss = quest
                 end
             elseif not normal then
-                normal = q
+                normal = quest
             end
         end
 
@@ -549,14 +595,14 @@ local function SelectQuest(normalOnly)
     return boss or normal
 end
 
--- QUEST GUI
--- Updated: search recursively, not only Main.Quest.
+-- QUEST UI
 
 local function QuestGui()
     local pg = P:FindFirstChild("PlayerGui")
     if not pg then return nil end
 
     local main = pg:FindFirstChild("Main")
+
     if main then
         local quest = main:FindFirstChild("Quest",true)
         if quest then return quest end
@@ -565,19 +611,37 @@ local function QuestGui()
     return pg:FindFirstChild("Quest",true)
 end
 
+local function GuiShown(object)
+    if not object then return false end
+
+    local current = object
+
+    while current do
+        if current:IsA("GuiObject")
+            and not current.Visible
+        then
+            return false
+        end
+
+        if current:IsA("ScreenGui")
+            and not current.Enabled
+        then
+            return false
+        end
+
+        current = current.Parent
+
+        if current == P:FindFirstChild("PlayerGui") then
+            break
+        end
+    end
+
+    return true
+end
+
 local function QuestVisible()
     local gui = QuestGui()
-    if not gui then return false end
-
-    if gui:IsA("GuiObject") then
-        return gui.Visible == true
-    end
-
-    if gui:IsA("ScreenGui") then
-        return gui.Enabled == true
-    end
-
-    return false
+    return gui ~= nil and GuiShown(gui)
 end
 
 local function QuestText()
@@ -586,12 +650,12 @@ local function QuestText()
 
     local lines = {}
 
-    for _,obj in ipairs(gui:GetDescendants()) do
-        if (obj:IsA("TextLabel")
-            or obj:IsA("TextButton"))
-            and obj.Text ~= ""
+    for _,object in ipairs(gui:GetDescendants()) do
+        if (object:IsA("TextLabel")
+            or object:IsA("TextButton"))
+            and object.Text ~= ""
         then
-            table.insert(lines,CleanText(obj.Text))
+            table.insert(lines,CleanText(object.Text))
         end
     end
 
@@ -605,13 +669,13 @@ local function DetectEnemy(text)
     local best,longest = nil,0
 
     for name in pairs(QuestNames) do
-        local n = Normal(name)
+        local normalized = Normal(name)
 
-        if #n >= 4
-            and #n > longest
-            and cleaned:find(n,1,true)
+        if #normalized >= 4
+            and #normalized > longest
+            and cleaned:find(normalized,1,true)
         then
-            best,longest = name,#n
+            best,longest = name,#normalized
         end
     end
 
@@ -619,19 +683,19 @@ local function DetectEnemy(text)
 end
 
 local function CompletionText(text)
-    local t = CleanText(text):lower()
+    local cleaned = CleanText(text):lower()
 
-    return t:find("quest completed",1,true)
-        or t:find("quest complete!",1,true)
-        or t:find("quest finished",1,true)
+    return cleaned:find("quest completed",1,true)
+        or cleaned:find("quest complete!",1,true)
+        or cleaned:find("quest finished",1,true)
 end
 
-local function ObjectiveProgress(text,q)
-    if not q or not q.Enemy or not q.Count then
+local function ObjectiveProgress(text,quest)
+    if not quest or not quest.Enemy or not quest.Count then
         return nil
     end
 
-    local wanted = Normal(q.Enemy)
+    local wanted = Normal(quest.Enemy)
 
     for line in tostring(text):gmatch("[^\r\n]+") do
         local cleaned = CleanText(line)
@@ -643,8 +707,8 @@ local function ObjectiveProgress(text,q)
                 local current = tonumber(a)
                 local required = tonumber(b)
 
-                if required == q.Count
-                    and current
+                if current
+                    and required == quest.Count
                     and current >= 0
                     and current <= required
                 then
@@ -658,6 +722,22 @@ local function ObjectiveProgress(text,q)
 end
 
 -- QUEST STATE
+--
+-- RequestSent:
+--   Prevents repeating StartQuest for a quest.
+--
+-- FarmingReady:
+--   Lets movement start independently of the UI.
+--
+-- GuiConfirmed:
+--   Records that this specific quest was seen.
+--
+-- Completion:
+--   May be detected via the quest panel,
+--   notifications, or tracked NPC deaths.
+--
+-- Completing a quest no longer requires
+-- GuiConfirmed to be true.
 
 local function ResetCombat()
     S.CombatTarget = nil
@@ -668,114 +748,226 @@ local function ResetCombat()
     S.CombatRetry = 0
 end
 
+local function ClearQuestConnections(quest)
+    if not quest or not quest.TargetConnections then
+        return
+    end
+
+    for npc,connection in pairs(quest.TargetConnections) do
+        pcall(function()
+            connection:Disconnect()
+        end)
+
+        quest.TargetConnections[npc] = nil
+    end
+end
+
 local function ResetQuest()
+    ClearQuestConnections(S.Quest)
+
     S.QuestSerial = S.QuestSerial+1
     S.Quest = nil
     S.Target = nil
     S.Spawn = nil
     S.LastScan = 0
     S.LastSpawn = 0
+
     ResetCombat()
 end
 
-local function NewQuest(record,visible)
+local function NewQuest(record,adopted)
     S.QuestSerial = S.QuestSerial+1
 
-    local q = {
+    local now = os.clock()
+
+    local quest = {
         ID = record.ID,
         Index = record.Index,
         Enemy = record.Enemy,
         Count = record.Count,
         Boss = record.Boss,
 
-        -- Seen means we are allowed to start farming.
-        Seen = visible == true,
+        FarmingReady = adopted == true,
+        GuiConfirmed = adopted == true,
 
-        -- GuiSeen means the quest UI actually appeared.
-        GuiSeen = visible == true,
-
-        Requested = 0,
+        RequestSent = false,
         RequestBusy = false,
+        RequestedAt = 0,
 
         FullProgress = false,
         CompletionNotice = false,
+        Progress = 0,
 
+        Kills = 0,
+        CountedNPCs = {},
+        TargetConnections = {},
+
+        FarmStarted = false,
+        FirstCombatAt = 0,
+        LastCombatAt = 0,
+        LastKillAt = 0,
+
+        EverVisible = adopted == true,
+        LastVisibleAt = adopted and now or 0,
         HiddenSince = nil,
+
         BossMissingSince = nil,
+
         Abandoning = false,
         AbandonAt = 0,
         AbandonHidden = nil
     }
 
-    S.Quest = q
+    S.Quest = quest
     S.Target = nil
     S.Spawn = nil
     S.LastScan = 0
     S.LastSpawn = 0
 
     ResetCombat()
-    return q
+
+    print(
+        "[Aevrix Quest] Selected:",
+        quest.Enemy,
+        "Required:",
+        quest.Count
+    )
+
+    return quest
 end
 
-local function RequestQuest(q)
-    if not A.Farm or not q
-        or S.Quest ~= q
-        or q.RequestBusy
-        or q.GuiSeen
+local function RequestQuest(quest)
+    if not S.Running
+        or not A.Farm
+        or not quest
+        or S.Quest ~= quest
+        or quest.RequestSent
+        or quest.RequestBusy
+        or quest.GuiConfirmed
+        or not quest.ID
+        or not quest.Index
     then
         return
     end
 
-    if q.Boss and not BossAlive(q.Enemy) then
+    if quest.Boss and not BossAlive(quest.Enemy) then
         return
     end
 
-    -- Never send a second StartQuest for the same
-    -- quest while its first request is still pending.
-    q.RequestBusy = true
-    q.Requested = os.clock()
+    -- ONE StartQuest request per quest.
+    quest.RequestSent = true
+    quest.RequestBusy = true
+    quest.RequestedAt = os.clock()
 
     local serial = S.QuestSerial
 
     task.spawn(function()
-        if not S.Running or not A.Farm
-            or S.Quest ~= q
+        if not S.Running
+            or not A.Farm
+            or S.Quest ~= quest
             or S.QuestSerial ~= serial
         then
-            q.RequestBusy = false
+            quest.RequestBusy = false
             return
         end
 
-        if q.Boss and not BossAlive(q.Enemy) then
-            q.RequestBusy = false
-            return
-        end
-
-        pcall(function()
-            Comm:InvokeServer(
+        local ok,result = pcall(function()
+            return Comm:InvokeServer(
                 "StartQuest",
-                q.ID,
-                q.Index
+                quest.ID,
+                quest.Index
             )
         end)
 
-        q.RequestBusy = false
+        quest.RequestBusy = false
+
+        if ok then
+            print(
+                "[Aevrix Quest] StartQuest sent:",
+                quest.Enemy
+            )
+        else
+            warn(
+                "[Aevrix Quest] StartQuest error:",
+                result
+            )
+        end
+
+        -- Never clear RequestSent here.
+        -- Clearing it caused the quest-reset loop.
     end)
 end
 
-local function AbandonBoss(q)
-    if not q or S.Quest ~= q
-        or not q.Boss
-        or q.Abandoning
+local function RegisterKill(npc,quest)
+    if not quest
+        or S.Quest ~= quest
+        or quest.CountedNPCs[npc]
+        or not quest.RequestSent
+            and not quest.GuiConfirmed
     then
         return
     end
 
-    q.Abandoning = true
-    q.AbandonAt = os.clock()
-    q.AbandonHidden = nil
+    quest.CountedNPCs[npc] = true
+    quest.Kills = quest.Kills+1
+    quest.LastKillAt = os.clock()
 
-    S.BossCooldown[Normal(q.Enemy)] = os.clock()+6
+    print(
+        "[Aevrix Quest] NPC defeated:",
+        quest.Kills,
+        "/",
+        quest.Count or "?"
+    )
+end
+
+local function TrackNPC(npc,quest)
+    if not quest
+        or quest.TargetConnections[npc]
+    then
+        return
+    end
+
+    local humanoid = npc:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+
+    local connection = humanoid.Died:Connect(function()
+        RegisterKill(npc,quest)
+    end)
+
+    quest.TargetConnections[npc] = connection
+end
+
+local function FinishQuest(quest,reason)
+    if not quest or S.Quest ~= quest then
+        return
+    end
+
+    print(
+        "[Aevrix Quest] Completed:",
+        quest.Enemy,
+        "Reason:",
+        reason,
+        "Kills:",
+        quest.Kills
+    )
+
+    ResetQuest()
+end
+
+local function AbandonBoss(quest)
+    if not quest
+        or S.Quest ~= quest
+        or not quest.Boss
+        or quest.Abandoning
+    then
+        return
+    end
+
+    quest.Abandoning = true
+    quest.AbandonAt = os.clock()
+    quest.AbandonHidden = nil
+
+    S.BossCooldown[Normal(quest.Enemy)] = os.clock()+5
     S.Target,S.Spawn = nil,nil
 
     Hold()
@@ -787,6 +979,80 @@ local function AbandonBoss(q)
     end)
 end
 
+local function WatchNotifications()
+    local pg = P:WaitForChild("PlayerGui")
+
+    local function Watch(object)
+        if S.Watched[object]
+            or not (
+                object:IsA("TextLabel")
+                or object:IsA("TextButton")
+            )
+        then
+            return
+        end
+
+        S.Watched[object] =
+            object:GetPropertyChangedSignal("Text"):Connect(function()
+                if not A.Farm then return end
+
+                local quest = S.Quest
+
+                if not quest
+                    or quest.Abandoning
+                    or not quest.RequestSent
+                        and not quest.GuiConfirmed
+                    or not CompletionText(object.Text)
+                then
+                    return
+                end
+
+                local panel = QuestGui()
+
+                if panel and object:IsDescendantOf(panel) then
+                    return
+                end
+
+                quest.CompletionNotice = true
+            end)
+    end
+
+    for _,object in ipairs(pg:GetDescendants()) do
+        Watch(object)
+    end
+
+    table.insert(
+        S.Connections,
+        pg.DescendantAdded:Connect(Watch)
+    )
+end
+
+local function HasCompletionEvidence(quest)
+    if not quest then return false end
+
+    if quest.FullProgress
+        or quest.CompletionNotice
+    then
+        return true
+    end
+
+    if quest.Count
+        and quest.Kills >= quest.Count
+    then
+        return true
+    end
+
+    return false
+end
+
+local function QuestHasStarted(quest)
+    return quest
+        and (
+            quest.RequestSent
+            or quest.GuiConfirmed
+        )
+end
+
 local function UpdateQuest()
     if not A.Farm then return end
 
@@ -794,18 +1060,18 @@ local function UpdateQuest()
     local visible = QuestVisible()
     local text = visible and QuestText() or ""
     local detected = visible and DetectEnemy(text) or nil
-    local q = S.Quest
 
-    -- Adopt an existing quest if Auto Farm was
-    -- switched on while one was already active.
-    if not q and visible then
+    local quest = S.Quest
+
+    -- Adopt an existing active quest.
+    if not quest and visible then
         if detected then
             local record = FindQuestRecord(detected)
 
             if record then
-                q = NewQuest(record,true)
+                NewQuest(record,true)
             else
-                q = NewQuest({
+                NewQuest({
                     Enemy = detected,
                     Boss = QuestIsBoss(detected)
                 },true)
@@ -815,37 +1081,44 @@ local function UpdateQuest()
         return
     end
 
-    -- Choose a quest only when no quest is locked.
-    if not q then
+    -- No quest locked: immediately select the next one.
+    if not quest then
         if visible then return end
 
-        local chosen = SelectQuest(false)
-        if not chosen then return end
+        local selected = SelectQuest(false)
+        if not selected then return end
 
-        -- Recheck boss availability before requesting.
-        if chosen.Boss and not BossAlive(chosen.Enemy) then
-            chosen = SelectQuest(true)
+        if selected.Boss
+            and not BossAlive(selected.Enemy)
+        then
+            selected = SelectQuest(true)
         end
 
-        if not chosen then return end
+        if not selected then return end
 
-        q = NewQuest(chosen,false)
-        RequestQuest(q)
+        quest = NewQuest(selected,false)
+        RequestQuest(quest)
+
         return
     end
 
-    -- FIX: Once the quest GUI becomes visible,
-    -- farming is immediately enabled.
-    if visible then
-        q.Seen = true
-        q.GuiSeen = true
-        q.HiddenSince = nil
+    -- Boss abandon recovery.
+    if quest.Abandoning then
+        if not visible then
+            quest.AbandonHidden =
+                quest.AbandonHidden or now
 
-        if q.Abandoning then
-            q.AbandonHidden = nil
+            if now-quest.AbandonHidden >= 0.4 then
+                S.BossCooldown[Normal(quest.Enemy)] =
+                    now+5
 
-            if now-q.AbandonAt >= 2 then
-                q.AbandonAt = now
+                ResetQuest()
+            end
+        else
+            quest.AbandonHidden = nil
+
+            if now-quest.AbandonAt >= 2 then
+                quest.AbandonAt = now
 
                 task.spawn(function()
                     pcall(function()
@@ -853,67 +1126,147 @@ local function UpdateQuest()
                     end)
                 end)
             end
-
-            return
         end
 
-        local progress = ObjectiveProgress(text,q)
+        return
+    end
 
-        if progress and q.Count
-            and progress >= q.Count
+    if visible then
+        quest.HiddenSince = nil
+
+        if detected
+            and Normal(detected) == Normal(quest.Enemy)
         then
-            q.FullProgress = true
-        end
+            quest.GuiConfirmed = true
+            quest.FarmingReady = true
+            quest.EverVisible = true
+            quest.LastVisibleAt = now
 
-        if CompletionText(text) then
-            q.CompletionNotice = true
-        end
+        elseif detected
+            and Normal(detected) ~= Normal(quest.Enemy)
+            and not quest.GuiConfirmed
+        then
+            -- Adopt the quest the game is actually showing,
+            -- rather than request over it.
+            local record = FindQuestRecord(detected)
 
-    else
-        q.HiddenSince = q.HiddenSince or now
-
-        if q.Abandoning then
-            q.AbandonHidden = q.AbandonHidden or now
-
-            if now-q.AbandonHidden >= 0.35 then
-                ResetQuest()
+            if record then
+                NewQuest(record,true)
+            else
+                NewQuest({
+                    Enemy = detected,
+                    Boss = QuestIsBoss(detected)
+                },true)
             end
 
             return
+
+        elseif quest.GuiConfirmed then
+            quest.EverVisible = true
+            quest.LastVisibleAt = now
         end
 
-        -- A normal quest is only released after
-        -- completion AND disappearance of its UI.
-        if q.GuiSeen
-            and (q.FullProgress or q.CompletionNotice)
-            and now-q.HiddenSince >= 0.4
-        then
-            ResetQuest()
-            return
+        if quest.GuiConfirmed then
+            local progress = ObjectiveProgress(text,quest)
+
+            if progress then
+                quest.Progress = math.max(
+                    quest.Progress,
+                    progress
+                )
+
+                if quest.Count
+                    and progress >= quest.Count
+                then
+                    quest.FullProgress = true
+                end
+            end
         end
+
+    else
+        quest.HiddenSince = quest.HiddenSince or now
     end
 
-    -- Boss quests have their own recovery rules.
-    if q.Boss then
-        if BossAlive(q.Enemy) then
-            q.BossMissingSince = nil
+    -- Completion notifications can arrive after
+    -- the quest panel has already disappeared.
+    if CompletionText(text) then
+        quest.CompletionNotice = true
+    end
+
+    local hiddenFor = quest.HiddenSince
+        and now-quest.HiddenSince
+        or 0
+
+    local completion = HasCompletionEvidence(quest)
+
+    -- PRIMARY COMPLETION:
+    -- Actual completion evidence and old panel gone.
+    --
+    -- Does NOT require GuiConfirmed.
+    if QuestHasStarted(quest)
+        and not visible
+        and completion
+        and hiddenFor >= 0.45
+    then
+        FinishQuest(quest,"completion evidence")
+        return
+    end
+
+    -- SECONDARY COMPLETION:
+    -- The actual quest UI was confirmed earlier,
+    -- farming happened, and that UI remained gone.
+    --
+    -- This handles quests that close before N/N
+    -- can be read from the display.
+    if quest.GuiConfirmed
+        and quest.EverVisible
+        and quest.FarmStarted
+        and quest.Kills > 0
+        and not visible
+        and hiddenFor >= 1.5
+    then
+        FinishQuest(quest,"quest panel cleared")
+        return
+    end
+
+    -- FALLBACK COMPLETION:
+    -- If the quest GUI was never detectable,
+    -- use tracked kills after one-shot StartQuest.
+    --
+    -- This does not restart the quest after one kill:
+    -- every required kill must have been tracked.
+    if not quest.GuiConfirmed
+        and quest.RequestSent
+        and quest.Count
+        and quest.Kills >= quest.Count
+        and not visible
+        and now-quest.LastKillAt >= 0.7
+    then
+        FinishQuest(quest,"required kills tracked")
+        return
+    end
+
+    -- Boss recovery remains separate from normal quests.
+    if quest.Boss then
+        if BossAlive(quest.Enemy) then
+            quest.BossMissingSince = nil
         else
-            q.BossMissingSince = q.BossMissingSince or now
+            quest.BossMissingSince =
+                quest.BossMissingSince or now
 
-            if now-q.BossMissingSince >= 1.2 then
-                if q.GuiSeen and visible then
-                    if not q.FullProgress
-                        and not q.CompletionNotice
-                    then
-                        AbandonBoss(q)
+            if now-quest.BossMissingSince >= 1.5 then
+                if not visible then
+                    S.BossCooldown[Normal(quest.Enemy)] =
+                        now+5
 
-                    elseif now-q.BossMissingSince >= 2 then
-                        AbandonBoss(q)
+                    if completion then
+                        FinishQuest(quest,"boss finished")
+                    else
+                        ResetQuest()
                     end
 
-                elseif not visible then
-                    S.BossCooldown[Normal(q.Enemy)] = now+6
-                    ResetQuest()
+                elseif quest.GuiConfirmed then
+                    AbandonBoss(quest)
                 end
             end
         end
@@ -921,38 +1274,29 @@ local function UpdateQuest()
         return
     end
 
-    -- FIX: Normal quests are NEVER restarted after
-    -- an NPC kill or a temporary quest UI flicker.
+    -- NORMAL QUEST LOCK
     --
-    -- The initial request happens once.
-    -- Only retry if the game never showed the
-    -- quest GUI AND we have not started farming.
-    if not q.GuiSeen
-        and not q.Seen
-        and not visible
-        and not q.RequestBusy
-        and q.ID and q.Index
-        and now-q.Requested >= 5
+    -- There are deliberately no StartQuest
+    -- retries here.
+    --
+    -- Killing an NPC does not unlock the quest.
+    -- A boss appearing does not change this quest.
+    --
+    -- Movement can start after the original request.
+    if not quest.FarmingReady
+        and quest.RequestSent
+        and now-quest.RequestedAt >= 0.65
     then
-        RequestQuest(q)
-    end
-
-    -- Movement fallback:
-    -- if the quest was requested but the GUI
-    -- wasn't detected, allow combat to start.
-    -- This does not issue another quest request.
-    if not q.Seen
-        and q.Requested > 0
-        and now-q.Requested >= 0.65
-    then
-        q.Seen = true
+        quest.FarmingReady = true
     end
 end
 
 -- COMBAT
 
 local function WeaponMatch(tool)
-    if not tool:IsA("Tool") then return false end
+    if not tool:IsA("Tool") then
+        return false
+    end
 
     local kind = tool:GetAttribute("WeaponType")
     local tip = (tool.ToolTip or ""):lower()
@@ -975,22 +1319,24 @@ local function WeaponMatch(tool)
 end
 
 local function Equip()
-    local c,h = Char()
-    if not c then return nil end
+    local character,humanoid = Char()
+    if not character then return nil end
 
-    for _,tool in ipairs(c:GetChildren()) do
+    for _,tool in ipairs(character:GetChildren()) do
         if WeaponMatch(tool) then
             return tool
         end
     end
 
-    local bag = P:FindFirstChild("Backpack")
+    local backpack = P:FindFirstChild("Backpack")
 
-    if bag then
-        for _,tool in ipairs(bag:GetChildren()) do
+    if backpack then
+        for _,tool in ipairs(backpack:GetChildren()) do
             if WeaponMatch(tool) then
-                h:EquipTool(tool)
-                return tool.Parent == c and tool or nil
+                humanoid:EquipTool(tool)
+
+                return tool.Parent == character
+                    and tool or nil
             end
         end
     end
@@ -1014,6 +1360,7 @@ local function RemoteAttack(npc)
 
     S.LastRemote = os.clock()
 
+    -- Working 40-stud attack method.
     pcall(function()
         RegisterAttack:FireServer(0.1)
         RegisterHit:FireServer(part,{{npc,part}})
@@ -1031,15 +1378,15 @@ local function Blocked(x,y)
         P:FindFirstChild("PlayerGui"),Core
     }) do
         if gui then
-            for _,obj in ipairs(gui:GetDescendants()) do
-                if obj:IsA("GuiObject") and (
-                    obj:IsA("GuiButton")
-                    or obj:IsA("TextBox")
-                    or obj.Active
-                    or obj.Selectable
+            for _,object in ipairs(gui:GetDescendants()) do
+                if object:IsA("GuiObject") and (
+                    object:IsA("GuiButton")
+                    or object:IsA("TextBox")
+                    or object.Active
+                    or object.Selectable
                 ) then
                     local shown = true
-                    local parent = obj
+                    local parent = object
 
                     while parent do
                         if parent:IsA("GuiObject")
@@ -1060,12 +1407,13 @@ local function Blocked(x,y)
                     end
 
                     if shown then
-                        local p,s = obj.AbsolutePosition,obj.AbsoluteSize
+                        local pos = object.AbsolutePosition
+                        local size = object.AbsoluteSize
 
-                        if x >= p.X-7
-                            and x <= p.X+s.X+7
-                            and y >= p.Y-7
-                            and y <= p.Y+s.Y+7
+                        if x >= pos.X-7
+                            and x <= pos.X+size.X+7
+                            and y >= pos.Y-7
+                            and y <= pos.Y+size.Y+7
                         then
                             return true
                         end
@@ -1085,12 +1433,17 @@ local function NormalAttack()
         return
     end
 
-    local cam = workspace.CurrentCamera
-    if not cam then return end
+    local camera = workspace.CurrentCamera
+    if not camera then return end
 
-    for _,p in ipairs(ClickPositions) do
-        local x = math.floor(cam.ViewportSize.X*p[1]/100)
-        local y = math.floor(cam.ViewportSize.Y*p[2]/100)
+    for _,point in ipairs(ClickPositions) do
+        local x = math.floor(
+            camera.ViewportSize.X*point[1]/100
+        )
+
+        local y = math.floor(
+            camera.ViewportSize.Y*point[2]/100
+        )
 
         if not Blocked(x,y) then
             S.LastAttack = os.clock()
@@ -1111,10 +1464,12 @@ local function NormalAttack()
                 pcall(function()
                     VU:CaptureController()
                     VU:Button1Down(
-                        Vector2.new(x,y),cam.CFrame
+                        Vector2.new(x,y),
+                        camera.CFrame
                     )
                     VU:Button1Up(
-                        Vector2.new(x,y),cam.CFrame
+                        Vector2.new(x,y),
+                        camera.CFrame
                     )
                 end)
             end
@@ -1169,40 +1524,47 @@ local function UseSkills()
 end
 
 local function GluePosition(npc)
-    local r = Root(npc)
-    local f = r.CFrame.LookVector
+    local root = Root(npc)
+    local forward = root.CFrame.LookVector
 
-    f = Vector3.new(f.X,0,f.Z)
-    f = f.Magnitude > 0.1
-        and f.Unit or Vector3.new(0,0,-1)
+    forward = Vector3.new(
+        forward.X,0,forward.Z
+    )
 
-    local dist = math.clamp(A.Range*0.23,2.3,3)
+    forward = forward.Magnitude > 0.1
+        and forward.Unit
+        or Vector3.new(0,0,-1)
 
-    if r.Size.Z > 4 then
-        dist = math.min(
-            4,dist+(r.Size.Z-4)*0.15
+    local distance = math.clamp(
+        A.Range*0.23,2.3,3
+    )
+
+    if root.Size.Z > 4 then
+        distance = math.min(
+            4,distance+(root.Size.Z-4)*0.15
         )
     end
 
-    return r.Position-f*dist+Vector3.new(0,0.3,0)
+    return root.Position-forward*distance
+        +Vector3.new(0,0.3,0)
 end
 
-local function SurfaceDistance(npc,pos)
+local function SurfaceDistance(npc,position)
     local ok,cf,size = pcall(function()
         return npc:GetBoundingBox()
     end)
 
     if not ok then
-        return (pos-Root(npc).Position).Magnitude
+        return (position-Root(npc).Position).Magnitude
     end
 
-    local p = cf:PointToObjectSpace(pos)
-    local h = size/2
+    local p = cf:PointToObjectSpace(position)
+    local half = size/2
 
     return Vector3.new(
-        math.max(math.abs(p.X)-h.X,0),
-        math.max(math.abs(p.Y)-h.Y,0),
-        math.max(math.abs(p.Z)-h.Z,0)
+        math.max(math.abs(p.X)-half.X,0),
+        math.max(math.abs(p.Y)-half.Y,0),
+        math.max(math.abs(p.Z)-half.Z,0)
     ).Magnitude
 end
 
@@ -1211,32 +1573,29 @@ local function UpdateFarm(dt)
         return false
     end
 
-    local q = S.Quest
+    local quest = S.Quest
 
-    if not q or q.Abandoning then
+    if not quest or quest.Abandoning then
         Hold()
         return true
     end
 
-    -- Updated: allow movement after quest acceptance
-    -- even if the GUI was slow to load.
-    if not q.Seen then
-        if QuestVisible() then
-            q.Seen = true
-            q.GuiSeen = true
-        elseif q.Requested > 0
-            and os.clock()-q.Requested >= 0.65
+    -- Moving and attacking are independent
+    -- of the quest GUI.
+    if not quest.FarmingReady then
+        if quest.RequestSent
+            and os.clock()-quest.RequestedAt >= 0.65
         then
-            q.Seen = true
+            quest.FarmingReady = true
         else
             Hold()
             return true
         end
     end
 
-    local enemy = q.Enemy
+    local enemy = quest.Enemy
 
-    if q.Boss and not BossAlive(enemy) then
+    if quest.Boss and not BossAlive(enemy) then
         S.Target,S.Spawn = nil,nil
         Hold()
         return true
@@ -1246,6 +1605,14 @@ local function UpdateFarm(dt)
         not Alive(S.Target)
         or Normal(S.Target.Name) ~= Normal(enemy)
     ) then
+        local old = S.Target
+        local humanoid =
+            old:FindFirstChildOfClass("Humanoid")
+
+        if humanoid and humanoid.Health <= 0 then
+            RegisterKill(old,quest)
+        end
+
         S.Target = nil
         S.LastScan = 0
         ResetCombat()
@@ -1255,13 +1622,13 @@ local function UpdateFarm(dt)
         and os.clock()-S.LastScan >= 0.1
     then
         S.LastScan = os.clock()
-        S.Target = FindEnemy(enemy,q.Boss)
+        S.Target = FindEnemy(enemy,quest.Boss)
     end
 
     local npc = S.Target
 
     if not npc then
-        if q.Boss then
+        if quest.Boss then
             Hold()
             return true
         end
@@ -1285,30 +1652,42 @@ local function UpdateFarm(dt)
         return true
     end
 
-    local r = Root(npc)
-    local _,hum,root = Char()
+    local npcRoot = Root(npc)
+    local _,humanoid,playerRoot = Char()
 
-    if not r or not root then return true end
-
-    if not q.Boss then
-        S.SpawnMemory[Normal(enemy)] = r.Position
+    if not npcRoot or not playerRoot then
+        return true
     end
+
+    if not quest.Boss then
+        S.SpawnMemory[Normal(enemy)] =
+            npcRoot.Position
+    end
+
+    -- Track each target until the quest finishes.
+    -- Connections aren't discarded between NPCs.
+    TrackNPC(npc,quest)
 
     if S.CombatTarget ~= npc then
         ResetCombat()
         S.CombatTarget = npc
 
-        local h = npc:FindFirstChildOfClass("Humanoid")
-        S.CombatHealth = h and h.Health
+        local enemyHumanoid =
+            npc:FindFirstChildOfClass("Humanoid")
+
+        S.CombatHealth = enemyHumanoid
+            and enemyHumanoid.Health
+
         S.CombatStart = os.clock()
         S.LastDamage = os.clock()
     end
 
-    local th = npc:FindFirstChildOfClass("Humanoid")
+    local enemyHumanoid =
+        npc:FindFirstChildOfClass("Humanoid")
 
-    if th then
+    if enemyHumanoid then
         if S.CombatHealth
-            and th.Health < S.CombatHealth
+            and enemyHumanoid.Health < S.CombatHealth
         then
             S.LastDamage = os.clock()
 
@@ -1317,20 +1696,31 @@ local function UpdateFarm(dt)
             end
         end
 
-        S.CombatHealth = th.Health
+        S.CombatHealth = enemyHumanoid.Health
     end
+
+    quest.FarmStarted = true
+
+    if quest.FirstCombatAt == 0 then
+        quest.FirstCombatAt = os.clock()
+    end
+
+    quest.LastCombatAt = os.clock()
 
     local now = os.clock()
 
-    if hum.Health/math.max(hum.MaxHealth,1) < 0.25 then
+    if humanoid.Health/math.max(humanoid.MaxHealth,1)
+        < 0.25
+    then
         S.RetreatUntil = now+5
     end
 
     if now < S.RetreatUntil then
         Move(
-            r.Position+Vector3.new(0,65,0),
-            A.Speed,dt,r.Position
+            npcRoot.Position+Vector3.new(0,65,0),
+            A.Speed,dt,npcRoot.Position
         )
+
         return true
     end
 
@@ -1345,11 +1735,12 @@ local function UpdateFarm(dt)
     if S.CombatMode == "probe"
         or S.CombatMode == "verified"
     then
-        local goal = r.Position+Vector3.new(0,40,0)
+        local goal =
+            npcRoot.Position+Vector3.new(0,40,0)
 
-        Move(goal,A.Speed,dt,r.Position)
+        Move(goal,A.Speed,dt,npcRoot.Position)
 
-        if (root.Position-goal).Magnitude <= 5 then
+        if (playerRoot.Position-goal).Magnitude <= 5 then
             RemoteAttack(npc)
 
             if S.CombatMode == "probe"
@@ -1370,14 +1761,17 @@ local function UpdateFarm(dt)
         return true
     end
 
-    Move(GluePosition(npc),A.Speed,dt,r.Position)
-
-    local dist = math.min(
-        (root.Position-r.Position).Magnitude,
-        SurfaceDistance(npc,root.Position)+2
+    Move(
+        GluePosition(npc),
+        A.Speed,dt,npcRoot.Position
     )
 
-    if dist <= A.Range then
+    local distance = math.min(
+        (playerRoot.Position-npcRoot.Position).Magnitude,
+        SurfaceDistance(npc,playerRoot.Position)+2
+    )
+
+    if distance <= A.Range then
         NormalAttack()
         UseSkills()
     end
@@ -1395,42 +1789,51 @@ local function ChestName(name)
         or n:match("^chest%a+$") ~= nil
 end
 
-local function ChestPart(obj)
-    if not obj or not obj.Parent then return nil end
-
-    if obj:IsA("BasePart") and ChestName(obj.Name) then
-        return obj
-    end
-
-    if obj:IsA("Model") and ChestName(obj.Name) then
-        return obj.PrimaryPart
-            or obj:FindFirstChildWhichIsA("BasePart",true)
-    end
-end
-
-local function ChestObject(obj)
-    if not obj or not ChestName(obj.Name) then
+local function ChestPart(object)
+    if not object or not object.Parent then
         return nil
     end
 
-    if obj:IsA("Model") then
-        return ChestPart(obj) and obj or nil
+    if object:IsA("BasePart")
+        and ChestName(object.Name)
+    then
+        return object
     end
 
-    if obj:IsA("BasePart") then
-        local parent = obj.Parent
+    if object:IsA("Model")
+        and ChestName(object.Name)
+    then
+        return object.PrimaryPart
+            or object:FindFirstChildWhichIsA(
+                "BasePart",true
+            )
+    end
+end
 
-        return parent and parent:IsA("Model")
+local function ChestObject(object)
+    if not object or not ChestName(object.Name) then
+        return nil
+    end
+
+    if object:IsA("Model") then
+        return ChestPart(object) and object or nil
+    end
+
+    if object:IsA("BasePart") then
+        local parent = object.Parent
+
+        return parent
+            and parent:IsA("Model")
             and ChestName(parent.Name)
-            and parent or obj
+            and parent or object
     end
 end
 
 local function RefreshChests()
     local found,seen = {},{}
 
-    for _,obj in ipairs(workspace:GetDescendants()) do
-        local chest = ChestObject(obj)
+    for _,object in ipairs(workspace:GetDescendants()) do
+        local chest = ChestObject(object)
 
         if chest and ChestPart(chest)
             and not seen[chest]
@@ -1455,21 +1858,24 @@ local function RefreshChests()
 end
 
 local function FindChest()
-    local _,_,root = Char()
-    if not root then return nil end
+    local _,_,playerRoot = Char()
+    if not playerRoot then return nil end
 
-    local best,dist
+    local best,closest
 
     for _,chest in ipairs(S.Chests) do
         local part = ChestPart(chest)
 
-        if part and not S.ChestDone[chest]
-            and (S.ChestFailed[chest] or 0) <= os.clock()
+        if part
+            and not S.ChestDone[chest]
+            and (S.ChestFailed[chest] or 0)
+                <= os.clock()
         then
-            local d = (root.Position-part.Position).Magnitude
+            local distance =
+                (playerRoot.Position-part.Position).Magnitude
 
-            if not dist or d < dist then
-                best,dist = chest,d
+            if not closest or distance < closest then
+                best,closest = chest,distance
             end
         end
     end
@@ -1496,22 +1902,29 @@ local function UpdateChest(dt)
         S.ChestTarget = nil
     end
 
-    if not S.ChestTarget then NextChest() end
+    if not S.ChestTarget then
+        NextChest()
+    end
 
     local chest = S.ChestTarget
-    if not chest then Hold() return end
+
+    if not chest then
+        Hold()
+        return
+    end
 
     local part = ChestPart(chest)
-    local _,_,root = Char()
+    local _,_,playerRoot = Char()
 
-    if not part or not root then
+    if not part or not playerRoot then
         S.ChestTarget = nil
         return
     end
 
-    local dist = (root.Position-part.Position).Magnitude
+    local distance =
+        (playerRoot.Position-part.Position).Magnitude
 
-    if dist <= 3.5 then
+    if distance <= 3.5 then
         S.ChestDone[chest] = true
         NextChest()
         return
@@ -1521,17 +1934,17 @@ local function UpdateChest(dt)
 
     if not S.ChestProgressTime then
         S.ChestProgressTime = now
-        S.ChestProgress = dist
+        S.ChestProgress = distance
 
     elseif now-S.ChestProgressTime >= 1.5 then
-        if (S.ChestProgress or dist)-dist < 10 then
+        if (S.ChestProgress or distance)-distance < 10 then
             S.ChestStuck = (S.ChestStuck or 0)+1
         else
             S.ChestStuck = 0
         end
 
         S.ChestProgressTime = now
-        S.ChestProgress = dist
+        S.ChestProgress = distance
 
         if S.ChestStuck >= 3 then
             S.ChestFailed[chest] = now+180
@@ -1540,68 +1953,74 @@ local function UpdateChest(dt)
         end
     end
 
-    Move(part.Position,A.ChestSpeed,dt,part.Position)
+    Move(
+        part.Position,
+        A.ChestSpeed,dt,part.Position
+    )
 end
 
 -- ESP
 
-local function RemoveESP(obj)
+local function RemoveESP(object)
     for _,bucket in ipairs({
         S.Highlights,S.Labels
     }) do
-        if bucket[obj] then
+        if bucket[object] then
             pcall(function()
-                bucket[obj]:Destroy()
+                bucket[object]:Destroy()
             end)
 
-            bucket[obj] = nil
+            bucket[object] = nil
         end
     end
 end
 
-local function ESP(obj,part,name,color)
-    if not obj or not part then return end
+local function ESP(object,part,name,color)
+    if not object or not part then return end
 
-    local h = S.Highlights[obj]
+    local highlight = S.Highlights[object]
 
-    if not h or not h.Parent then
-        h = Instance.new("Highlight")
-        h.Name = "AevrixESP"
-        h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-        h.FillTransparency = 0.75
-        h.Parent = Core
-        S.Highlights[obj] = h
+    if not highlight or not highlight.Parent then
+        highlight = Instance.new("Highlight")
+        highlight.Name = "AevrixESP"
+        highlight.DepthMode =
+            Enum.HighlightDepthMode.AlwaysOnTop
+        highlight.FillTransparency = 0.75
+        highlight.Parent = Core
+
+        S.Highlights[object] = highlight
     end
 
-    h.Adornee = obj
-    h.FillColor = color
-    h.OutlineColor = color
+    highlight.Adornee = object
+    highlight.FillColor = color
+    highlight.OutlineColor = color
 
-    local b = S.Labels[obj]
+    local billboard = S.Labels[object]
 
-    if not b or not b.Parent then
-        b = Instance.new("BillboardGui")
-        b.Name = "AevrixLabel"
-        b.Size = UDim2.fromOffset(160,30)
-        b.StudsOffsetWorldSpace = Vector3.new(0,3,0)
-        b.AlwaysOnTop = true
-        b.Parent = Core
+    if not billboard or not billboard.Parent then
+        billboard = Instance.new("BillboardGui")
+        billboard.Name = "AevrixLabel"
+        billboard.Size = UDim2.fromOffset(160,30)
+        billboard.StudsOffsetWorldSpace =
+            Vector3.new(0,3,0)
+        billboard.AlwaysOnTop = true
+        billboard.Parent = Core
 
-        local t = Instance.new("TextLabel")
-        t.Name = "Name"
-        t.Size = UDim2.fromScale(1,1)
-        t.BackgroundTransparency = 1
-        t.Font = Enum.Font.GothamBold
-        t.TextSize = 14
-        t.TextStrokeTransparency = 0.35
-        t.Parent = b
+        local label = Instance.new("TextLabel")
+        label.Name = "Name"
+        label.Size = UDim2.fromScale(1,1)
+        label.BackgroundTransparency = 1
+        label.Font = Enum.Font.GothamBold
+        label.TextSize = 14
+        label.TextStrokeTransparency = 0.35
+        label.Parent = billboard
 
-        S.Labels[obj] = b
+        S.Labels[object] = billboard
     end
 
-    b.Adornee = part
+    billboard.Adornee = part
 
-    local text = b:FindFirstChild("Name")
+    local text = billboard:FindFirstChild("Name")
 
     if text then
         text.Text = name
@@ -1615,15 +2034,15 @@ local function UpdateESP()
     if A.PlayerESP then
         for _,player in ipairs(Players:GetPlayers()) do
             if player ~= P then
-                local c = player.Character
-                local r = c and Root(c)
+                local character = player.Character
+                local root = character and Root(character)
 
-                if c and r then
-                    active[c] = true
+                if character and root then
+                    active[character] = true
 
                     ESP(
-                        c,
-                        c:FindFirstChild("Head") or r,
+                        character,
+                        character:FindFirstChild("Head") or root,
                         player.DisplayName,
                         Colors[A.PlayerColor]
                     )
@@ -1640,16 +2059,18 @@ local function UpdateESP()
                 active[chest] = true
 
                 ESP(
-                    chest,part,"Chest",
+                    chest,
+                    part,
+                    "Chest",
                     Colors[A.ChestColor]
                 )
             end
         end
     end
 
-    for obj in pairs(S.Highlights) do
-        if not active[obj] then
-            RemoveESP(obj)
+    for object in pairs(S.Highlights) do
+        if not active[object] then
+            RemoveESP(object)
         end
     end
 end
@@ -1669,12 +2090,16 @@ local function SelectedStats()
 end
 
 local function DistributeStats()
-    if S.StatBusy or not A.Stats then return end
+    if S.StatBusy or not A.Stats then
+        return
+    end
 
-    local d = P:FindFirstChild("Data")
-    local points = d and d:FindFirstChild("Points")
+    local data = P:FindFirstChild("Data")
+    local points = data and data:FindFirstChild("Points")
 
-    if not points or points.Value <= 0 then return end
+    if not points or points.Value <= 0 then
+        return
+    end
 
     S.StatBusy = true
 
@@ -1702,6 +2127,7 @@ local function DistributeStats()
 
         local stat = selected[S.StatIndex]
         local before = points.Value
+
         local serverName = stat == "Blox Fruit"
             and "Demon Fruit" or stat
 
@@ -1711,10 +2137,11 @@ local function DistributeStats()
             )
         end)
 
-        if not ok or result == false then break end
+        if not ok or result == false then
+            break
+        end
 
         S.StatIndex = S.StatIndex%#selected+1
-
         task.wait(0.08)
 
         if points.Parent and points.Value >= before then
@@ -1798,12 +2225,17 @@ local function SetChest(enabled)
     )
 end
 
-local function Connect(signal,fn)
-    table.insert(S.Connections,signal:Connect(fn))
+local function Connect(signal,callback)
+    table.insert(
+        S.Connections,
+        signal:Connect(callback)
+    )
 end
 
 Connect(Run.PreSimulation,function()
-    if Moving() then Noclip() end
+    if Moving() then
+        Noclip()
+    end
 end)
 
 Connect(Run.Heartbeat,function(dt)
@@ -1830,14 +2262,14 @@ Connect(P.CharacterAdded,function()
     ClearFlight()
     RestoreNoclip()
 
-    S.Target,S.ChestTarget = nil,nil
+    S.Target = nil
+    S.ChestTarget = nil
+
     ResetCombat()
 end)
 
 Connect(UIS.InputBegan,function(input)
-    if not S.Running
-        or UIS:GetFocusedTextBox()
-    then
+    if not S.Running or UIS:GetFocusedTextBox() then
         return
     end
 
@@ -1846,6 +2278,10 @@ Connect(UIS.InputBegan,function(input)
     then
         SetFarm(not A.Farm)
     end
+end)
+
+task.spawn(function()
+    pcall(WatchNotifications)
 end)
 
 task.spawn(function()
@@ -1879,6 +2315,7 @@ task.spawn(function()
         end
 
         pcall(UpdateESP)
+
         task.wait(0.5)
     end
 end)
@@ -1904,18 +2341,28 @@ end)
 
 local function Cleanup()
     S.Running = false
-    A.Farm,A.Chest,A.Stats = false,false,false
+
+    A.Farm = false
+    A.Chest = false
+    A.Stats = false
 
     Stop()
+    ResetQuest()
 
-    for _,conn in ipairs(S.Connections) do
+    for _,connection in ipairs(S.Connections) do
         pcall(function()
-            conn:Disconnect()
+            connection:Disconnect()
         end)
     end
 
-    for obj in pairs(S.Highlights) do
-        RemoveESP(obj)
+    for _,connection in pairs(S.Watched) do
+        pcall(function()
+            connection:Disconnect()
+        end)
+    end
+
+    for object in pairs(S.Highlights) do
+        RemoveESP(object)
     end
 
     if S.Library then
@@ -1955,10 +2402,13 @@ end
 local Window = Lib:CreateWindow({
     Title = "Aevrix Hub",
     SubTitle = "Blox Fruits Auto Farm",
+
     TabWidth = 145,
     Size = UDim2.fromOffset(650,455),
+
     Resize = true,
     MinSize = Vector2.new(470,350),
+
     Acrylic = true,
     Theme = "Dark",
     MinimizeKey = Enum.KeyCode.RightControl
@@ -2029,6 +2479,7 @@ local function Drop(tab,id,title,key,values)
         Title = title,
         Values = values,
         Multi = false,
+
         Default = table.find(values,A[key]) or 1,
 
         Callback = function(value)
@@ -2126,9 +2577,7 @@ StatsTab:CreateDropdown("MultiStats",{
         local selected = {}
 
         for name,enabled in pairs(values) do
-            if enabled
-                and table.find(StatNames,name)
-            then
+            if enabled and table.find(StatNames,name) then
                 selected[name] = true
             end
         end
