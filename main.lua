@@ -1,5 +1,4 @@
--- Aevrix Hub
--- Subtitle: Blox Fruits Auto Farm
+
 
 local Players=game:GetService("Players")
 local RS=game:GetService("ReplicatedStorage")
