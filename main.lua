@@ -1,36 +1,30 @@
--- Aevrix Hub V12
--- Complete Auto Farm + Fruits
--- Boss quests: 1 required kill
--- Accept Boss Quest OFF prevents boss StartQuest requests
+-- Aevrix Hub V13 | Auto Farm + Fruits + PvP
 
-local Players=game:GetService("Players")
-local RS=game:GetService("ReplicatedStorage")
-local Run=game:GetService("RunService")
-local UIS=game:GetService("UserInputService")
-local VU=game:GetService("VirtualUser")
-local Core=game:GetService("CoreGui")
-local P=Players.LocalPlayer
-local Env=getgenv and getgenv() or _G
+local Players = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+local Run = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local VU = game:GetService("VirtualUser")
+local Core = game:GetService("CoreGui")
+local P = Players.LocalPlayer
+local Env = getgenv and getgenv() or _G
 
-if type(Env.AevrixCleanup)=="function" then
-    pcall(Env.AevrixCleanup)
-end
-if type(Env.AevrixEggCleanup)=="function" then
+if type(Env.AevrixCleanup) == "function" then pcall(Env.AevrixCleanup) end
+if type(Env.AevrixEggCleanup) == "function" then
     pcall(Env.AevrixEggCleanup)
-    Env.AevrixEggCleanup=nil
+    Env.AevrixEggCleanup = nil
 end
 
 local VIM
-pcall(function() VIM=game:GetService("VirtualInputManager") end)
+pcall(function() VIM = game:GetService("VirtualInputManager") end)
+local Comm = RS:WaitForChild("Remotes"):WaitForChild("CommF_")
+local Quests = require(RS:WaitForChild("Quests"))
+local Net = RS:FindFirstChild("Modules")
+Net = Net and Net:FindFirstChild("Net")
+local RegisterAttack = Net and Net:FindFirstChild("RE/RegisterAttack")
+local RegisterHit = Net and Net:FindFirstChild("RE/RegisterHit")
 
-local Comm=RS:WaitForChild("Remotes"):WaitForChild("CommF_")
-local Quests=require(RS:WaitForChild("Quests"))
-local Net=RS:FindFirstChild("Modules")
-Net=Net and Net:FindFirstChild("Net")
-local RegisterAttack=Net and Net:FindFirstChild("RE/RegisterAttack")
-local RegisterHit=Net and Net:FindFirstChild("RE/RegisterHit")
-
-local A={
+local A = {
     Farm=false,AcceptBossQuest=false,Chest=false,
     PlayerESP=false,ChestESP=false,Skills=false,Stats=false,
     Hotkey="F",TargetLevel=2800,Speed=320,ChestSpeed=320,
@@ -39,39 +33,31 @@ local A={
     PlayerColor="Cyan",ChestColor="Gold"
 }
 
-local S={
+local S = {
     Running=true,Connections={},Watched={},Collisions={},
     Highlights={},Labels={},Chests={},ChestDone={},ChestFailed={},
     SpawnMemory={},SkillTimes={},BossCooldown={},
     Velocity=Vector3.zero,Updating=false,
     StatBusy=false,StatIndex=1,SkillIndex=0,
-    Quest=nil,QuestSerial=0,
-    Target=nil,Spawn=nil,ChestTarget=nil,
-    LastScan=0,LastSpawn=0,LastChest=0,LastStat=0,
-    LastSkill=0,LastAttack=0,LastRemote=0,
-    LastError=0,LastMemory=0,RetreatUntil=0,CombatMode="probe"
+    Quest=nil,QuestSerial=0,Target=nil,Spawn=nil,ChestTarget=nil,
+    LastScan=0,LastSpawn=0,LastChest=0,LastStat=0,LastSkill=0,
+    LastAttack=0,LastRemote=0,LastError=0,LastMemory=0,
+    RetreatUntil=0,CombatMode="probe"
 }
 
 local StatNames={"Melee","Defense","Sword","Gun","Blox Fruit"}
 local ColorNames={"Cyan","Gold","Red","Green","Blue","Purple","Pink","White"}
 local Colors={
-    Cyan=Color3.fromRGB(0,220,255),
-    Gold=Color3.fromRGB(255,200,40),
-    Red=Color3.fromRGB(255,65,65),
-    Green=Color3.fromRGB(60,255,120),
-    Blue=Color3.fromRGB(75,130,255),
-    Purple=Color3.fromRGB(175,90,255),
-    Pink=Color3.fromRGB(255,100,190),
-    White=Color3.new(1,1,1)
+    Cyan=Color3.fromRGB(0,220,255),Gold=Color3.fromRGB(255,200,40),
+    Red=Color3.fromRGB(255,65,65),Green=Color3.fromRGB(60,255,120),
+    Blue=Color3.fromRGB(75,130,255),Purple=Color3.fromRGB(175,90,255),
+    Pink=Color3.fromRGB(255,100,190),White=Color3.new(1,1,1)
 }
 
-local Melee={}
-local Bosses={}
-
+local Melee,Bosses={},{}
 for name in ("combat,darkstep,blackleg,electric,waterkungfu,dragonbreath,superhuman,deathstep,sharkmankarate,electricclaw,dragontalon,godhuman,sanguineart"):gmatch("[^,]+") do
     Melee[name]=true
 end
-
 for name in ("gorillaking,bobby,yeti,mobleader,viceadmiral,warden,chiefwarden,swan,magmaadmiral,fishmanlord,wysper,thundergod,cyborg,diamond,jeremy,fajita,donswan,smokeadmiral,awakenediceadmiral,tidekeeper,darkbeard,cursedcaptain,order,stone,islandempress,kiloadmiral,captainelephant,beautifulpirate,longma,soulreaper,cakequeen,cakeprince,doughking,ripindra,saberexpert,greybeard,saw,iceadmiral,doughprince,leviathan,terrorshark"):gmatch("[^,]+") do
     Bosses[name]=true
 end
@@ -92,27 +78,21 @@ local Spawns={
     prisonerguard=Vector3.new(4870,6,740)
 }
 
--- HELPERS
-
 local function Normal(value)
     return tostring(value or ""):lower():gsub("%[.*",""):gsub("[^%w]","")
 end
-
 local function CleanText(value)
     return tostring(value or ""):gsub("<.->","")
 end
-
 local function BossName(value)
     local name=Normal(value)
     local noThe=name:gsub("^the","")
     return Bosses[name]==true or Bosses[noThe]==true
         or name:find("boss",1,true)~=nil
 end
-
 local function Root(model)
     return model and (model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart)
 end
-
 local function Char()
     local character=P.Character
     local humanoid=character and character:FindFirstChildOfClass("Humanoid")
@@ -121,26 +101,21 @@ local function Char()
         return character,humanoid,root
     end
 end
-
 local function Level()
     local data=P:FindFirstChild("Data")
     local value=data and data:FindFirstChild("Level")
     return value and tonumber(value.Value) or 1
 end
-
 local function EnemyFolder()
     return workspace:FindFirstChild("Enemies")
 end
-
 local function Alive(npc)
     local humanoid=npc and npc:FindFirstChildOfClass("Humanoid")
     local root=Root(npc)
-    return npc and npc:IsA("Model")
-        and npc.Parent==EnemyFolder()
-        and humanoid and humanoid.Health>0
-        and root and root:IsDescendantOf(workspace)
+    return npc and npc:IsA("Model") and npc.Parent==EnemyFolder()
+        and humanoid and humanoid.Health>0 and root
+        and root:IsDescendantOf(workspace)
 end
-
 local function BossNPC(npc)
     if not npc then return false end
     if BossName(npc.Name) then return true end
@@ -149,7 +124,6 @@ local function BossNPC(npc)
     end
     return false
 end
-
 local function FindEnemy(name,bossOnly)
     local folder=EnemyFolder()
     local _,_,playerRoot=Char()
@@ -167,22 +141,16 @@ local function FindEnemy(name,bossOnly)
     end
     return best
 end
-
 local function BossAlive(name)
-    if os.clock()<(S.BossCooldown[Normal(name)] or 0) then
-        return nil
-    end
+    if os.clock()<(S.BossCooldown[Normal(name)] or 0) then return nil end
     return FindEnemy(name,false)
 end
-
 local function Moving()
     return S.Running and (
         A.Farm or A.Chest or S.FruitFlight~=nil
-        or S.FruitPurchaseLock==true
+        or S.FruitPurchaseLock==true or S.PvPFlight~=nil
     )
 end
-
--- MOVEMENT
 
 local function Noclip()
     local character=P.Character
@@ -196,7 +164,6 @@ local function Noclip()
         end
     end
 end
-
 local function RestoreNoclip()
     for part,original in pairs(S.Collisions) do
         pcall(function()
@@ -205,26 +172,19 @@ local function RestoreNoclip()
         S.Collisions[part]=nil
     end
 end
-
 local function ClearFlight()
     for _,object in ipairs({S.BV,S.BG}) do
-        if object then
-            pcall(function() object:Destroy() end)
-        end
+        if object then pcall(function() object:Destroy() end) end
     end
     S.BV,S.BG,S.FlightRoot=nil,nil,nil
     S.Velocity=Vector3.zero
 end
-
 local function Flight()
     local _,humanoid,root=Char()
     if not root or not Moving() then return false end
-
     if S.FlightRoot~=root or not S.BV or not S.BV.Parent
         or not S.BG or not S.BG.Parent then
-
         ClearFlight()
-
         local velocity=Instance.new("BodyVelocity")
         velocity.Name="AevrixFlight"
         velocity.MaxForce=Vector3.new(1e9,1e9,1e9)
@@ -239,46 +199,36 @@ local function Flight()
         gyro.D=1400
         gyro.CFrame=root.CFrame
         gyro.Parent=root
-
         S.BV,S.BG,S.FlightRoot=velocity,gyro,root
     end
-
     humanoid.AutoRotate=false
     humanoid:Move(Vector3.zero)
     return true
 end
-
 local function Move(goal,speed,dt,face)
     if not goal or not Flight() then return end
     local _,_,root=Char()
     if not root then return end
-
     dt=math.clamp(dt,1/240,0.1)
     local delta=goal-root.Position
     local distance=delta.Magnitude
     local desired=distance>0.15
-        and delta.Unit*math.min(speed,distance*7)
-        or Vector3.zero
-
+        and delta.Unit*math.min(speed,distance*7) or Vector3.zero
     S.Velocity=S.Velocity:Lerp(
         desired,1-math.exp(-(distance>25 and 11 or 15)*dt)
     )
     S.BV.Velocity=S.Velocity
-
-    local look=face and Vector3.new(
-        face.X-root.Position.X,0,face.Z-root.Position.Z
-    ) or Vector3.new(S.Velocity.X,0,S.Velocity.Z)
-
+    local look=face
+        and Vector3.new(face.X-root.Position.X,0,face.Z-root.Position.Z)
+        or Vector3.new(S.Velocity.X,0,S.Velocity.Z)
     if look.Magnitude>0.05 then
         S.BG.CFrame=CFrame.lookAt(root.Position,root.Position+look.Unit)
     end
 end
-
 local function Hold()
     S.Velocity=Vector3.zero
     if S.BV then S.BV.Velocity=Vector3.zero end
 end
-
 local function Stop()
     ClearFlight()
     RestoreNoclip()
@@ -286,8 +236,6 @@ local function Stop()
     if humanoid then humanoid.AutoRotate=true end
     S.Target,S.ChestTarget=nil,nil
 end
-
--- SPAWN TRACKING
 
 local function RememberNPCs()
     local folder=EnemyFolder()
@@ -303,10 +251,8 @@ local function FindSpawn(name)
     if not name or BossName(name) then return nil end
     local _,_,playerRoot=Char()
     if not playerRoot then return nil end
-
     local folders={}
     local worldOrigin=workspace:FindFirstChild("_WorldOrigin")
-
     for _,parent in ipairs({workspace,worldOrigin}) do
         if parent then
             for _,key in ipairs({"EnemySpawns","NPCSpawns","MobSpawns"}) do
@@ -315,10 +261,8 @@ local function FindSpawn(name)
             end
         end
     end
-
     local best,closest
     local wanted=Normal(name)
-
     for _,folder in ipairs(folders) do
         for _,object in ipairs(folder:GetDescendants()) do
             if object:IsA("BasePart") or object:IsA("Attachment") then
@@ -336,7 +280,6 @@ local function FindSpawn(name)
                             break
                         end
                     end
-
                     if found then
                         local position=object:IsA("Attachment")
                             and object.WorldPosition or part.Position
@@ -349,15 +292,12 @@ local function FindSpawn(name)
             end
         end
     end
-
     return best or S.SpawnMemory[wanted] or Spawns[wanted]
 end
 
 -- QUEST DATABASE
 
-local QuestList={}
-local QuestNames={}
-local BossQuestNames={}
+local QuestList,QuestNames,BossQuestNames={},{},{}
 
 for id,stages in pairs(Quests) do
     if type(stages)=="table" then
@@ -365,7 +305,6 @@ for id,stages in pairs(Quests) do
             if type(index)=="number" and type(record)=="table"
                 and type(record.LevelReq)=="number"
                 and type(record.Task)=="table" then
-
                 local enemy,count,total=nil,nil,0
                 for name,amount in pairs(record.Task) do
                     if type(name)=="string" and type(amount)=="number"
@@ -374,21 +313,14 @@ for id,stages in pairs(Quests) do
                         total=total+1
                     end
                 end
-
                 if total==1 then
-                    -- One required kill means a boss quest.
-                    local boss=count==1
-                        or BossName(enemy)
-                        or BossName(id)
-                        or BossName(record.Name)
+                    local boss=count==1 or BossName(enemy)
+                        or BossName(id) or BossName(record.Name)
                         or BossName(record.Title)
-
                     table.insert(QuestList,{
-                        ID=id,Index=index,Enemy=enemy,
-                        Count=count,LevelReq=record.LevelReq,
-                        Boss=boss
+                        ID=id,Index=index,Enemy=enemy,Count=count,
+                        LevelReq=record.LevelReq,Boss=boss
                     })
-
                     QuestNames[enemy]=true
                     if boss then BossQuestNames[Normal(enemy)]=true end
                 end
@@ -396,40 +328,28 @@ for id,stages in pairs(Quests) do
         end
     end
 end
-
-table.sort(QuestList,function(a,b)
-    return a.LevelReq>b.LevelReq
-end)
+table.sort(QuestList,function(a,b) return a.LevelReq>b.LevelReq end)
 
 local function QuestIsBoss(name)
     return BossQuestNames[Normal(name)]==true or BossName(name)
 end
-
 local function IsBossQuestRecord(record)
     if not record then return false end
-
-    -- Most important check: exactly one required kill.
     if tonumber(record.Count)==1 then return true end
-
-    -- Check the original quest database too.
     local stages=record.ID and Quests[record.ID]
     local raw=type(stages)=="table" and stages[record.Index]
-
     if type(raw)=="table" and type(raw.Task)=="table" then
         for _,amount in pairs(raw.Task) do
             if tonumber(amount)==1 then return true end
         end
     end
-
     if record.Boss==true or QuestIsBoss(record.Enemy)
         or BossName(record.ID) then
         return true
     end
-
     local npc=record.Enemy and FindEnemy(record.Enemy,false)
     return npc~=nil and BossNPC(npc) or false
 end
-
 local function FindQuestRecord(name)
     for _,quest in ipairs(QuestList) do
         if Normal(quest.Enemy)==Normal(name)
@@ -438,11 +358,9 @@ local function FindQuestRecord(name)
         end
     end
 end
-
 local function SelectQuest(normalOnly)
     local normal,boss
     local level=Level()
-
     for _,quest in ipairs(QuestList) do
         if quest.LevelReq<=level then
             if IsBossQuestRecord(quest) then
@@ -457,11 +375,8 @@ local function SelectQuest(normalOnly)
         end
         if normal and boss then break end
     end
-
     return boss or normal
 end
-
--- QUEST GUI
 
 local function QuestGui()
     local pg=P:FindFirstChild("PlayerGui")
@@ -473,7 +388,6 @@ local function QuestGui()
     end
     return pg:FindFirstChild("Quest",true)
 end
-
 local function GuiShown(object)
     if not object then return false end
     local current=object
@@ -489,12 +403,10 @@ local function GuiShown(object)
     end
     return true
 end
-
 local function QuestVisible()
     local gui=QuestGui()
     return gui~=nil and GuiShown(gui)
 end
-
 local function QuestText()
     local gui=QuestGui()
     if not gui then return "" end
@@ -520,14 +432,12 @@ local function DetectEnemy(text)
     end
     return best
 end
-
 local function CompletionText(text)
     local cleaned=CleanText(text):lower()
     return cleaned:find("quest completed",1,true)
         or cleaned:find("quest complete!",1,true)
         or cleaned:find("quest finished",1,true)
 end
-
 local function ObjectiveProgress(text,quest)
     if not quest or not quest.Enemy or not quest.Count then return nil end
     local wanted=Normal(quest.Enemy)
@@ -536,8 +446,7 @@ local function ObjectiveProgress(text,quest)
         local normalized=cleaned:lower():gsub("[^%w]","")
         if normalized:find(wanted,1,true) then
             for a,b in cleaned:gmatch("(%d+)%s*/%s*(%d+)") do
-                local current=tonumber(a)
-                local required=tonumber(b)
+                local current,required=tonumber(a),tonumber(b)
                 if current and required==quest.Count
                     and current>=0 and current<=required then
                     return current
@@ -545,10 +454,7 @@ local function ObjectiveProgress(text,quest)
             end
         end
     end
-    return nil
 end
-
--- QUEST STATE
 
 local function ResetCombat()
     S.CombatTarget=nil
@@ -558,7 +464,6 @@ local function ResetCombat()
     S.LastDamage=0
     S.CombatRetry=0
 end
-
 local function ClearQuestConnections(quest)
     if not quest or not quest.TargetConnections then return end
     for npc,connection in pairs(quest.TargetConnections) do
@@ -566,7 +471,6 @@ local function ClearQuestConnections(quest)
         quest.TargetConnections[npc]=nil
     end
 end
-
 local function ResetQuest()
     ClearQuestConnections(S.Quest)
     S.QuestSerial=S.QuestSerial+1
@@ -577,16 +481,13 @@ local function ResetQuest()
     S.LastSpawn=0
     ResetCombat()
 end
-
 local function NewQuest(record,adopted)
     S.QuestSerial=S.QuestSerial+1
     local now=os.clock()
     local isBoss=IsBossQuestRecord(record)
-
     local quest={
         ID=record.ID,Index=record.Index,
-        Enemy=record.Enemy,Count=record.Count,
-        Boss=isBoss,
+        Enemy=record.Enemy,Count=record.Count,Boss=isBoss,
         NoQuest=isBoss and not A.AcceptBossQuest and not adopted,
         FarmingReady=adopted==true
             or (isBoss and not A.AcceptBossQuest),
@@ -594,40 +495,31 @@ local function NewQuest(record,adopted)
         RequestSent=false,RequestBusy=false,RequestedAt=0,
         FullProgress=false,CompletionNotice=false,Progress=0,
         Kills=0,CountedNPCs={},TargetConnections={},
-        FarmStarted=false,FirstCombatAt=0,
-        LastCombatAt=0,LastKillAt=0,
+        FarmStarted=false,FirstCombatAt=0,LastCombatAt=0,LastKillAt=0,
         EverVisible=adopted==true,
         LastVisibleAt=adopted and now or 0,
         HiddenSince=nil,BossMissingSince=nil,
         Abandoning=false,AbandonAt=0,AbandonHidden=nil
     }
-
     S.Quest=quest
     S.Target=nil
     S.Spawn=nil
     S.LastScan=0
     S.LastSpawn=0
     ResetCombat()
-
-    print("[Aevrix Quest] Selected:",quest.Enemy,
-        "Required:",quest.Count)
-
+    print("[Aevrix Quest] Selected:",quest.Enemy,"Required:",quest.Count)
     return quest
 end
-
 local function RequestQuest(quest)
     if not S.Running or not A.Farm or not quest
-        or S.Quest~=quest
-        or quest.RequestSent or quest.RequestBusy
+        or S.Quest~=quest or quest.RequestSent or quest.RequestBusy
         or quest.GuiConfirmed
         or (not A.AcceptBossQuest and IsBossQuestRecord(quest))
         or not quest.ID or not quest.Index then
         return
     end
 
-    if quest.Boss and not BossAlive(quest.Enemy) then
-        return
-    end
+    if quest.Boss and not BossAlive(quest.Enemy) then return end
 
     if not A.AcceptBossQuest
         and (tonumber(quest.Count)==1 or IsBossQuestRecord(quest)) then
@@ -640,7 +532,6 @@ local function RequestQuest(quest)
     quest.RequestBusy=true
     quest.RequestedAt=os.clock()
     local serial=S.QuestSerial
-
     task.spawn(function()
         if not S.Running or not A.Farm or S.Quest~=quest
             or S.QuestSerial~=serial
@@ -649,19 +540,16 @@ local function RequestQuest(quest)
             return
         end
 
-        -- Final guard immediately before StartQuest.
         local ok,result=pcall(function()
             if not A.AcceptBossQuest
                 and (tonumber(quest.Count)==1
                     or IsBossQuestRecord(quest)) then
                 return false
             end
-
             return Comm:InvokeServer("StartQuest",quest.ID,quest.Index)
         end)
 
         quest.RequestBusy=false
-
         if ok and result~=false then
             print("[Aevrix Quest] StartQuest sent:",quest.Enemy)
         elseif not ok then
@@ -669,113 +557,85 @@ local function RequestQuest(quest)
         end
     end)
 end
-
 local function RegisterKill(npc,quest)
     if not quest or S.Quest~=quest or quest.CountedNPCs[npc]
         or (not quest.RequestSent
-            and not quest.GuiConfirmed
-            and not quest.NoQuest) then
+            and not quest.GuiConfirmed and not quest.NoQuest) then
         return
     end
-
     quest.CountedNPCs[npc]=true
     quest.Kills=quest.Kills+1
     quest.LastKillAt=os.clock()
-
     print("[Aevrix Quest] NPC defeated:",
         quest.Kills,"/",quest.Count or "?")
 end
-
 local function TrackNPC(npc,quest)
     if not quest or quest.TargetConnections[npc] then return end
     local humanoid=npc:FindFirstChildOfClass("Humanoid")
     if not humanoid then return end
-    local connection=humanoid.Died:Connect(function()
+    quest.TargetConnections[npc]=humanoid.Died:Connect(function()
         RegisterKill(npc,quest)
     end)
-    quest.TargetConnections[npc]=connection
 end
-
 local function FinishQuest(quest,reason)
     if not quest or S.Quest~=quest then return end
     print("[Aevrix Quest] Completed:",quest.Enemy,
         "Reason:",reason,"Kills:",quest.Kills)
     ResetQuest()
 end
-
 local function AbandonBoss(quest)
-    if not quest or S.Quest~=quest
-        or not quest.Boss or quest.Abandoning then
-        return
-    end
-
+    if not quest or S.Quest~=quest or not quest.Boss
+        or quest.Abandoning then return end
     quest.Abandoning=true
     quest.AbandonAt=os.clock()
     quest.AbandonHidden=nil
     S.BossCooldown[Normal(quest.Enemy)]=os.clock()+5
     S.Target,S.Spawn=nil,nil
     Hold()
-
     task.spawn(function()
         pcall(function() Comm:InvokeServer("AbandonQuest") end)
     end)
 end
-
 local function WatchNotifications()
     local pg=P:WaitForChild("PlayerGui")
-
     local function Watch(object)
         if S.Watched[object]
-            or not (object:IsA("TextLabel") or object:IsA("TextButton")) then
-            return
-        end
-
+            or not (object:IsA("TextLabel")
+                or object:IsA("TextButton")) then return end
         S.Watched[object]=
             object:GetPropertyChangedSignal("Text"):Connect(function()
                 if not A.Farm then return end
                 local quest=S.Quest
-
                 if not quest or quest.Abandoning
-                    or (not quest.RequestSent
-                        and not quest.GuiConfirmed)
+                    or (not quest.RequestSent and not quest.GuiConfirmed)
                     or not CompletionText(object.Text) then
                     return
                 end
-
                 local panel=QuestGui()
                 if panel and object:IsDescendantOf(panel) then return end
                 quest.CompletionNotice=true
             end)
     end
-
-    for _,object in ipairs(pg:GetDescendants()) do
-        Watch(object)
-    end
-
+    for _,object in ipairs(pg:GetDescendants()) do Watch(object) end
     table.insert(S.Connections,pg.DescendantAdded:Connect(Watch))
 end
-
 local function HasCompletionEvidence(quest)
     if not quest then return false end
     if quest.FullProgress or quest.CompletionNotice then return true end
-    if quest.Count and quest.Kills>=quest.Count then return true end
-    return false
+    return quest.Count and quest.Kills>=quest.Count or false
 end
-
 local function QuestHasStarted(quest)
     return quest and (quest.RequestSent or quest.GuiConfirmed)
 end
 
 local function UpdateQuest()
     if not A.Farm then return end
-
     local now=os.clock()
     local visible=QuestVisible()
     local text=visible and QuestText() or ""
     local detected=visible and DetectEnemy(text) or nil
     local quest=S.Quest
 
-    -- Bosses can still be farmed without taking their quests.
     if quest and quest.NoQuest then
         if not BossAlive(quest.Enemy) then
             S.BossCooldown[Normal(quest.Enemy)]=now+5
@@ -784,11 +644,10 @@ local function UpdateQuest()
         return
     end
 
-    -- Abandon an already-active one-target boss quest when OFF.
-    if not A.AcceptBossQuest and visible and detected then
-        local existing=FindQuestRecord(detected)
-
-        if existing and IsBossQuestRecord(existing) then
+    if not A.AcceptBossQuest and visible then
+        local existing=detected and FindQuestRecord(detected)
+        local required=tonumber(text:match("%d+%s*/%s*(%d+)"))
+        if required==1 or (existing and IsBossQuestRecord(existing)) then
             if now-(S.LastBossAbandon or -100)>=5 then
                 S.LastBossAbandon=now
                 task.spawn(function()
@@ -797,13 +656,11 @@ local function UpdateQuest()
                     end)
                 end)
             end
-
             if quest and not quest.NoQuest then ResetQuest() end
             return
         end
     end
 
-    -- Adopt an existing normal quest.
     if not quest and visible then
         if detected then
             local record=FindQuestRecord(detected)
@@ -811,26 +668,21 @@ local function UpdateQuest()
                 NewQuest(record,true)
             else
                 NewQuest({
-                    Enemy=detected,
-                    Boss=QuestIsBoss(detected)
+                    Enemy=detected,Boss=QuestIsBoss(detected)
                 },true)
             end
         end
         return
     end
 
-    -- Select next eligible quest / boss.
     if not quest then
         if visible then return end
-
         local selected=SelectQuest(false)
         if not selected then return end
-
         if selected.Boss and not BossAlive(selected.Enemy) then
             selected=SelectQuest(true)
         end
         if not selected then return end
-
         quest=NewQuest(selected,false)
         RequestQuest(quest)
         return
@@ -859,28 +711,20 @@ local function UpdateQuest()
 
     if visible then
         quest.HiddenSince=nil
-
         if detected and Normal(detected)==Normal(quest.Enemy) then
             quest.GuiConfirmed=true
             quest.FarmingReady=true
             quest.EverVisible=true
             quest.LastVisibleAt=now
-
-        elseif detected
-            and Normal(detected)~=Normal(quest.Enemy)
+        elseif detected and Normal(detected)~=Normal(quest.Enemy)
             and not quest.GuiConfirmed then
-
             local record=FindQuestRecord(detected)
             if record then
                 NewQuest(record,true)
             else
-                NewQuest({
-                    Enemy=detected,
-                    Boss=QuestIsBoss(detected)
-                },true)
+                NewQuest({Enemy=detected,Boss=QuestIsBoss(detected)},true)
             end
             return
-
         elseif quest.GuiConfirmed then
             quest.EverVisible=true
             quest.LastVisibleAt=now
@@ -903,26 +747,22 @@ local function UpdateQuest()
         quest.CompletionNotice=true
     end
 
-    local hiddenFor=quest.HiddenSince
-        and now-quest.HiddenSince or 0
+    local hiddenFor=quest.HiddenSince and now-quest.HiddenSince or 0
     local completion=HasCompletionEvidence(quest)
 
-    if QuestHasStarted(quest) and not visible
-        and completion and hiddenFor>=0.45 then
+    if QuestHasStarted(quest) and not visible and completion
+        and hiddenFor>=0.45 then
         FinishQuest(quest,"completion evidence")
         return
     end
-
-    if quest.GuiConfirmed and quest.EverVisible
-        and quest.FarmStarted and quest.Kills>0
-        and not visible and hiddenFor>=1.5 then
+    if quest.GuiConfirmed and quest.EverVisible and quest.FarmStarted
+        and quest.Kills>0 and not visible and hiddenFor>=1.5 then
         FinishQuest(quest,"quest panel cleared")
         return
     end
-
-    if not quest.GuiConfirmed and quest.RequestSent
-        and quest.Count and quest.Kills>=quest.Count
-        and not visible and now-quest.LastKillAt>=0.7 then
+    if not quest.GuiConfirmed and quest.RequestSent and quest.Count
+        and quest.Kills>=quest.Count and not visible
+        and now-quest.LastKillAt>=0.7 then
         FinishQuest(quest,"required kills tracked")
         return
     end
@@ -932,7 +772,6 @@ local function UpdateQuest()
             quest.BossMissingSince=nil
         else
             quest.BossMissingSince=quest.BossMissingSince or now
-
             if now-quest.BossMissingSince>=1.5 then
                 if not visible then
                     S.BossCooldown[Normal(quest.Enemy)]=now+5
@@ -961,7 +800,6 @@ local function WeaponMatch(tool)
     if not tool:IsA("Tool") then return false end
     local kind=tool:GetAttribute("WeaponType")
     local tip=(tool.ToolTip or ""):lower()
-
     if A.Weapon=="Melee" then
         return kind=="Melee" or kind=="FightingStyle"
             or tip=="melee" or Melee[Normal(tool.Name)]==true
@@ -969,18 +807,14 @@ local function WeaponMatch(tool)
         return kind=="Fruit" or kind=="Demon Fruit"
             or tip=="fruit" or tip=="blox fruit"
     end
-
     return kind==A.Weapon or tip==A.Weapon:lower()
 end
-
 local function Equip()
     local character,humanoid=Char()
     if not character then return nil end
-
     for _,tool in ipairs(character:GetChildren()) do
         if WeaponMatch(tool) then return tool end
     end
-
     local backpack=P:FindFirstChild("Backpack")
     if backpack then
         for _,tool in ipairs(backpack:GetChildren()) do
@@ -991,19 +825,14 @@ local function Equip()
         end
     end
 end
-
 local function RemoteAttack(npc)
     if not Alive(npc) or not RegisterAttack or not RegisterHit
         or not RegisterAttack:IsA("RemoteEvent")
         or not RegisterHit:IsA("RemoteEvent")
-        or os.clock()-S.LastRemote<A.Delay then
-        return
-    end
-
+        or os.clock()-S.LastRemote<A.Delay then return end
     if not Equip() then return end
     local part=npc:FindFirstChild("Head") or Root(npc)
     if not part then return end
-
     S.LastRemote=os.clock()
     pcall(function()
         RegisterAttack:FireServer(0.1)
@@ -1013,8 +842,7 @@ end
 
 local ClickPositions={
     {88,45},{91,55},{85,32},{87,68},
-    {75,45},{75,65},{12,45},{15,30},
-    {50,75},{50,50}
+    {75,45},{75,65},{12,45},{15,30},{50,75},{50,50}
 }
 
 local function Blocked(x,y)
@@ -1022,13 +850,11 @@ local function Blocked(x,y)
         if gui then
             for _,object in ipairs(gui:GetDescendants()) do
                 if object:IsA("GuiObject") and (
-                    object:IsA("GuiButton")
-                    or object:IsA("TextBox")
+                    object:IsA("GuiButton") or object:IsA("TextBox")
                     or object.Active or object.Selectable
                 ) then
                     local shown=true
                     local parent=object
-
                     while parent do
                         if parent:IsA("GuiObject") and not parent.Visible then
                             shown=false
@@ -1040,7 +866,6 @@ local function Blocked(x,y)
                         end
                         parent=parent.Parent
                     end
-
                     if shown then
                         local pos=object.AbsolutePosition
                         local size=object.AbsoluteSize
@@ -1058,25 +883,20 @@ end
 
 local function NormalAttack()
     if os.clock()-S.LastAttack<A.Delay or not Equip() then return end
-
     local camera=workspace.CurrentCamera
     if not camera then return end
-
     for _,point in ipairs(ClickPositions) do
         local x=math.floor(camera.ViewportSize.X*point[1]/100)
         local y=math.floor(camera.ViewportSize.Y*point[2]/100)
-
         if not Blocked(x,y) then
             S.LastAttack=os.clock()
             local ok=false
-
             if VIM then
                 ok=pcall(function()
                     VIM:SendMouseButtonEvent(x,y,0,true,game,0)
                     VIM:SendMouseButtonEvent(x,y,0,false,game,0)
                 end)
             end
-
             if not ok then
                 pcall(function()
                     VU:CaptureController()
@@ -1088,25 +908,20 @@ local function NormalAttack()
         end
     end
 end
-
 local function UseSkills()
     if not A.Skills or not VIM
         or os.clock()-S.LastSkill<1 then return end
-
     local tool=Equip()
     if not tool then return end
     local keys={"Z","X","C","V"}
-
     for offset=1,#keys do
         local index=(S.SkillIndex+offset-1)%#keys+1
         local key=keys[index]
         local id=tool.Name..":"..key
-
         if os.clock()-(S.SkillTimes[id] or -math.huge)>=A.SkillCooldown then
             S.SkillIndex=index
             S.LastSkill=os.clock()
             S.SkillTimes[id]=S.LastSkill
-
             task.spawn(function()
                 pcall(function()
                     VIM:SendKeyEvent(true,Enum.KeyCode[key],false,game)
@@ -1118,30 +933,21 @@ local function UseSkills()
         end
     end
 end
-
 local function GluePosition(npc)
     local root=Root(npc)
     local forward=root.CFrame.LookVector
     forward=Vector3.new(forward.X,0,forward.Z)
     forward=forward.Magnitude>0.1
         and forward.Unit or Vector3.new(0,0,-1)
-
     local distance=math.clamp(A.Range*0.23,2.3,3)
     if root.Size.Z>4 then
         distance=math.min(4,distance+(root.Size.Z-4)*0.15)
     end
-
     return root.Position-forward*distance+Vector3.new(0,0.3,0)
 end
-
 local function SurfaceDistance(npc,position)
-    local ok,cf,size=pcall(function()
-        return npc:GetBoundingBox()
-    end)
-    if not ok then
-        return (position-Root(npc).Position).Magnitude
-    end
-
+    local ok,cf,size=pcall(function() return npc:GetBoundingBox() end)
+    if not ok then return (position-Root(npc).Position).Magnitude end
     local p=cf:PointToObjectSpace(position)
     local half=size/2
     return Vector3.new(
@@ -1153,13 +959,11 @@ end
 
 local function UpdateFarm(dt)
     if Level()>=A.TargetLevel then return false end
-
     local quest=S.Quest
     if not quest or quest.Abandoning then
         Hold()
         return true
     end
-
     if not quest.FarmingReady then
         if quest.RequestSent
             and os.clock()-quest.RequestedAt>=0.65 then
@@ -1169,9 +973,7 @@ local function UpdateFarm(dt)
             return true
         end
     end
-
     local enemy=quest.Enemy
-
     if quest.Boss and not BossAlive(enemy) then
         S.Target,S.Spawn=nil,nil
         Hold()
@@ -1179,8 +981,7 @@ local function UpdateFarm(dt)
     end
 
     if S.Target and (
-        not Alive(S.Target)
-        or Normal(S.Target.Name)~=Normal(enemy)
+        not Alive(S.Target) or Normal(S.Target.Name)~=Normal(enemy)
     ) then
         local old=S.Target
         local humanoid=old:FindFirstChildOfClass("Humanoid")
@@ -1203,12 +1004,10 @@ local function UpdateFarm(dt)
             Hold()
             return true
         end
-
         if not S.Spawn or os.clock()-S.LastSpawn>=2 then
             S.LastSpawn=os.clock()
             S.Spawn=FindSpawn(enemy)
         end
-
         if S.Spawn then
             Move(S.Spawn+Vector3.new(0,40,0),A.Speed,dt)
         else
@@ -1224,7 +1023,6 @@ local function UpdateFarm(dt)
     if not quest.Boss then
         S.SpawnMemory[Normal(enemy)]=npcRoot.Position
     end
-
     TrackNPC(npc,quest)
 
     if S.CombatTarget~=npc then
@@ -1238,12 +1036,9 @@ local function UpdateFarm(dt)
 
     local enemyHumanoid=npc:FindFirstChildOfClass("Humanoid")
     if enemyHumanoid then
-        if S.CombatHealth
-            and enemyHumanoid.Health<S.CombatHealth then
+        if S.CombatHealth and enemyHumanoid.Health<S.CombatHealth then
             S.LastDamage=os.clock()
-            if S.CombatMode=="probe" then
-                S.CombatMode="verified"
-            end
+            if S.CombatMode=="probe" then S.CombatMode="verified" end
         end
         S.CombatHealth=enemyHumanoid.Health
     end
@@ -1253,8 +1048,8 @@ local function UpdateFarm(dt)
         quest.FirstCombatAt=os.clock()
     end
     quest.LastCombatAt=os.clock()
-
     local now=os.clock()
+
     if humanoid.Health/math.max(humanoid.MaxHealth,1)<0.25 then
         S.RetreatUntil=now+5
     end
@@ -1274,16 +1069,12 @@ local function UpdateFarm(dt)
     if S.CombatMode=="probe" or S.CombatMode=="verified" then
         local goal=npcRoot.Position+Vector3.new(0,40,0)
         Move(goal,A.Speed,dt,npcRoot.Position)
-
         if (playerRoot.Position-goal).Magnitude<=5 then
             RemoteAttack(npc)
-
-            if S.CombatMode=="probe"
-                and now-S.CombatStart>=3
+            if S.CombatMode=="probe" and now-S.CombatStart>=3
                 and now-S.LastDamage>=2.5 then
                 S.CombatMode="normal"
                 S.CombatRetry=now+12
-
             elseif S.CombatMode=="verified"
                 and now-S.LastDamage>=5 then
                 S.CombatMode="normal"
@@ -1294,12 +1085,10 @@ local function UpdateFarm(dt)
     end
 
     Move(GluePosition(npc),A.Speed,dt,npcRoot.Position)
-
     local distance=math.min(
         (playerRoot.Position-npcRoot.Position).Magnitude,
         SurfaceDistance(npc,playerRoot.Position)+2
     )
-
     if distance<=A.Range then
         NormalAttack()
         UseSkills()
@@ -1314,7 +1103,6 @@ local function ChestName(name)
     return n=="chest" or n:match("^chest%d+$")~=nil
         or n:match("^chest%a+$")~=nil
 end
-
 local function ChestPart(object)
     if not object or not object.Parent then return nil end
     if object:IsA("BasePart") and ChestName(object.Name) then
@@ -1325,7 +1113,6 @@ local function ChestPart(object)
             or object:FindFirstChildWhichIsA("BasePart",true)
     end
 end
-
 local function ChestObject(object)
     if not object or not ChestName(object.Name) then return nil end
     if object:IsA("Model") then
@@ -1337,7 +1124,6 @@ local function ChestObject(object)
             and ChestName(parent.Name) and parent or object
     end
 end
-
 local function RefreshChests()
     local found,seen={},{}
     for _,object in ipairs(workspace:GetDescendants()) do
@@ -1347,10 +1133,8 @@ local function RefreshChests()
             table.insert(found,chest)
         end
     end
-
     S.Chests=found
     S.LastChest=os.clock()
-
     for _,bucket in ipairs({S.ChestDone,S.ChestFailed}) do
         for chest in pairs(bucket) do
             if not ChestPart(chest) then bucket[chest]=nil end
@@ -1361,7 +1145,6 @@ end
 local function FindChest()
     local _,_,playerRoot=Char()
     if not playerRoot then return nil end
-
     local best,closest
     for _,chest in ipairs(S.Chests) do
         local part=ChestPart(chest)
@@ -1375,68 +1158,55 @@ local function FindChest()
     end
     return best
 end
-
 local function NextChest()
     S.ChestTarget=FindChest()
     S.ChestProgress=nil
     S.ChestProgressTime=nil
     S.ChestStuck=0
 end
-
 local function UpdateChest(dt)
     if os.clock()-S.LastChest>=5 then RefreshChests() end
-
     if S.ChestTarget and (
-        not ChestPart(S.ChestTarget)
-        or S.ChestDone[S.ChestTarget]
+        not ChestPart(S.ChestTarget) or S.ChestDone[S.ChestTarget]
     ) then
         S.ChestTarget=nil
     end
-
     if not S.ChestTarget then NextChest() end
-
     local chest=S.ChestTarget
     if not chest then
         Hold()
         return
     end
-
     local part=ChestPart(chest)
     local _,_,playerRoot=Char()
     if not part or not playerRoot then
         S.ChestTarget=nil
         return
     end
-
     local distance=(playerRoot.Position-part.Position).Magnitude
     if distance<=3.5 then
         S.ChestDone[chest]=true
         NextChest()
         return
     end
-
     local now=os.clock()
     if not S.ChestProgressTime then
         S.ChestProgressTime=now
         S.ChestProgress=distance
-
     elseif now-S.ChestProgressTime>=1.5 then
         if (S.ChestProgress or distance)-distance<10 then
             S.ChestStuck=(S.ChestStuck or 0)+1
         else
             S.ChestStuck=0
         end
-
         S.ChestProgressTime=now
         S.ChestProgress=distance
-
         if S.ChestStuck>=3 then
             S.ChestFailed[chest]=now+180
             NextChest()
             return
         end
     end
-
     Move(part.Position,A.ChestSpeed,dt,part.Position)
 end
 
@@ -1450,11 +1220,9 @@ local function RemoveESP(object)
         end
     end
 end
-
 local function ESP(object,part,name,color)
     if not object or not part then return end
     local highlight=S.Highlights[object]
-
     if not highlight or not highlight.Parent then
         highlight=Instance.new("Highlight")
         highlight.Name="AevrixESP"
@@ -1463,7 +1231,6 @@ local function ESP(object,part,name,color)
         highlight.Parent=Core
         S.Highlights[object]=highlight
     end
-
     highlight.Adornee=object
     highlight.FillColor=color
     highlight.OutlineColor=color
@@ -1487,7 +1254,6 @@ local function ESP(object,part,name,color)
         label.Parent=billboard
         S.Labels[object]=billboard
     end
-
     billboard.Adornee=part
     local text=billboard:FindFirstChild("Name")
     if text then
@@ -1495,10 +1261,8 @@ local function ESP(object,part,name,color)
         text.TextColor3=color
     end
 end
-
 local function UpdateESP()
     local active={}
-
     if A.PlayerESP then
         for _,player in ipairs(Players:GetPlayers()) do
             if player~=P then
@@ -1513,7 +1277,6 @@ local function UpdateESP()
             end
         end
     end
-
     if A.ChestESP then
         for _,chest in ipairs(S.Chests) do
             local part=ChestPart(chest)
@@ -1523,7 +1286,6 @@ local function UpdateESP()
             end
         end
     end
-
     for object in pairs(S.Highlights) do
         if not active[object] then RemoveESP(object) end
     end
@@ -1534,45 +1296,32 @@ end
 local function SelectedStats()
     local result={}
     for _,name in ipairs(StatNames) do
-        if A.SelectedStats[name] then
-            table.insert(result,name)
-        end
+        if A.SelectedStats[name] then table.insert(result,name) end
     end
     return result
 end
-
 local function DistributeStats()
     if S.StatBusy or not A.Stats then return end
     local data=P:FindFirstChild("Data")
     local points=data and data:FindFirstChild("Points")
     if not points or points.Value<=0 then return end
-
     S.StatBusy=true
     local amount=math.min(math.floor(points.Value),math.floor(A.Points))
-
     for _=1,amount do
-        if not S.Running or not A.Stats
-            or not points.Parent or points.Value<=0 then
-            break
-        end
-
+        if not S.Running or not A.Stats or not points.Parent
+            or points.Value<=0 then break end
         local selected=SelectedStats()
         if #selected==0 then break end
         if S.StatIndex>#selected then S.StatIndex=1 end
-
         local stat=selected[S.StatIndex]
         local before=points.Value
         local serverName=stat=="Blox Fruit" and "Demon Fruit" or stat
-
         local ok,result=pcall(function()
             return Comm:InvokeServer("AddPoint",serverName,1)
         end)
-
         if not ok or result==false then break end
-
         S.StatIndex=S.StatIndex%#selected+1
         task.wait(0.08)
-
         if points.Parent and points.Value>=before then
             task.wait(0.12)
         end
@@ -1585,11 +1334,10 @@ local Notify=function() end
 -- FRUITS
 
 local Fruits={
-    AutoRoll=false,Stock="Loading...",
-    StockBusy=false,NextStock=0,Rotation=-1,
-    Client=nil,CheckBusy=false,NextCheck=0,
-    Ready=false,Status="Checking...",Deadline=nil,
-    RollBusy=false,NextAttempt=0,
+    AutoRoll=false,Stock="Loading...",StockBusy=false,
+    NextStock=0,Rotation=-1,Client=nil,CheckBusy=false,
+    NextCheck=0,Ready=false,Status="Checking...",
+    Deadline=nil,RollBusy=false,NextAttempt=0,
     FlightStatus="Idle",Paragraphs={},Shown={},Toggle=nil
 }
 
@@ -1602,10 +1350,8 @@ local function FruitTime(seconds)
     seconds=math.max(0,math.floor(tonumber(seconds) or 0))
     return string.format("%02d:%02d:%02d",
         math.floor(seconds/3600),
-        math.floor(seconds%3600/60),
-        seconds%60)
+        math.floor(seconds%3600/60),seconds%60)
 end
-
 local function FruitInfo(id,text)
     text=tostring(text)
     if Fruits.Shown[id]==text then return end
@@ -1615,16 +1361,13 @@ local function FruitInfo(id,text)
         if ok then Fruits.Shown[id]=text end
     end
 end
-
 local function FruitStock()
     if Fruits.StockBusy or not S.Running then return end
     Fruits.StockBusy=true
     Fruits.NextStock=os.clock()+45
-
     local ok,data=pcall(function()
         return Comm:InvokeServer("GetFruits")
     end)
-
     if ok and type(data)=="table" then
         local names,seen={},{}
         for _,fruit in pairs(data) do
@@ -1640,7 +1383,6 @@ local function FruitStock()
     else
         Fruits.Stock="Stock unavailable; retrying"
     end
-
     Fruits.StockBusy=false
 end
 
@@ -1649,37 +1391,21 @@ local function FruitNPC(kind)
     if not wanted then return end
     local _,_,me=Char()
     local best,bestDistance=nil,math.huge
-
     for _,npc in ipairs(workspace:GetDescendants()) do
         local n=Normal(npc.Name)
-        local matches=(
-            kind=="Gacha" and (
-                n=="bloxfruitgacha"
-                or n=="bloxfruitsgacha"
-                or n=="zioles"
-            )
-        ) or (
-            kind=="Dealer" and (
-                n=="bloxfruitdealer"
-                or n=="bloxfruitsdealer"
-            )
-        )
-
+        local matches=(kind=="Gacha" and (
+            n=="bloxfruitgacha" or n=="bloxfruitsgacha" or n=="zioles"
+        )) or (kind=="Dealer" and (
+            n=="bloxfruitdealer" or n=="bloxfruitsdealer"
+        ))
         if not matches and npc:IsA("Model") then
             local label=npc:GetAttribute("NPCName")
                 or npc:GetAttribute("DisplayName")
             local labelName=Normal(label)
-
-            matches=(
-                kind=="Gacha" and (
-                    labelName=="bloxfruitgacha"
-                    or labelName=="zioles"
-                )
-            ) or (
-                kind=="Dealer" and labelName=="bloxfruitdealer"
-            )
+            matches=(kind=="Gacha" and (
+                labelName=="bloxfruitgacha" or labelName=="zioles"
+            )) or (kind=="Dealer" and labelName=="bloxfruitdealer")
         end
-
         if npc:IsA("Model") and matches then
             local part=Root(npc) or npc:FindFirstChild("Head")
             if part and part:IsA("BasePart") then
@@ -1694,7 +1420,6 @@ local function FruitNPC(kind)
     return best
 end
 
--- Sea-specific fallback destinations.
 local FruitWaypoints={
     [2753915549]={
         Gacha=Vector3.new(-656,22,1574),
@@ -1715,74 +1440,55 @@ local FruitAreaNames={
     [4442272183]="Cafe",
     [7449423635]="Mansion"
 }
-
 local function FruitFallback(kind)
     local points=FruitWaypoints[game.PlaceId]
     return points and points[kind] or nil
 end
-
 local function EndFruitFlight(success,message)
     local flight=S.FruitFlight
     if not flight then return end
-
     flight.Done,flight.Success=true,success==true
     flight.Message=message
     Fruits.FlightStatus=message
         or (success and "Arrived" or "Flight stopped")
     S.FruitFlight=nil
-
     ClearFlight()
-
     if not (A.Farm or A.Chest) then
         RestoreNoclip()
         local _,humanoid=Char()
         if humanoid then humanoid.AutoRotate=true end
     end
 end
-
 local function BeginFruitFlight(kind,automatic)
-    if S.FruitFlight then return nil,"Flight already active" end
-
+    if S.FruitFlight or S.PvPFlight then
+        return nil,"Flight already active"
+    end
     local _,_,hrp=Char()
     if not hrp then return nil,"Character not ready" end
-
     local npc=FruitNPC(kind)
-    local target=npc
-        and (npc.Position+Vector3.new(4,3,0))
+    local target=npc and npc.Position+Vector3.new(4,3,0)
         or FruitFallback(kind)
-
-    if not target then
-        return nil,"Unsupported sea / NPC unavailable"
-    end
-
+    if not target then return nil,"Unsupported sea / NPC unavailable" end
     local flight={
-        Kind=kind,Automatic=automatic==true,
-        Exact=npc~=nil,
+        Kind=kind,Automatic=automatic==true,Exact=npc~=nil,
         Target=target,
         CruiseY=math.max(hrp.Position.Y,target.Y)+80,
-        Phase="Climb",
-        Deadline=os.clock()+180,
+        Phase="Climb",Deadline=os.clock()+180,
         LastRefine=0,Done=false,Success=false
     }
-
     S.FruitFlight=flight
     Fruits.FlightStatus="Flying to "..FruitNPCNames[kind]
     return flight
 end
-
 local function UpdateFruitFlight(dt)
     local flight=S.FruitFlight
     if not flight then return end
-
     local _,_,hrp=Char()
     if not hrp or os.clock()>=flight.Deadline then
         EndFruitFlight(false,"Flight timed out / character reset")
         return
     end
-
-    -- Search again when NPCs stream into range.
-    if not flight.Exact
-        and os.clock()-flight.LastRefine>1.5 then
+    if not flight.Exact and os.clock()-flight.LastRefine>1.5 then
         flight.LastRefine=os.clock()
         local npc=FruitNPC(flight.Kind)
         if npc then
@@ -1794,16 +1500,11 @@ local function UpdateFruitFlight(dt)
     end
 
     local goal,radius
-
     if flight.Phase=="Climb" then
-        goal=Vector3.new(
-            hrp.Position.X,flight.CruiseY,hrp.Position.Z
-        )
+        goal=Vector3.new(hrp.Position.X,flight.CruiseY,hrp.Position.Z)
         radius=7
     elseif flight.Phase=="Cruise" then
-        goal=Vector3.new(
-            flight.Target.X,flight.CruiseY,flight.Target.Z
-        )
+        goal=Vector3.new(flight.Target.X,flight.CruiseY,flight.Target.Z)
         radius=11
     else
         goal=flight.Target
@@ -1817,10 +1518,8 @@ local function UpdateFruitFlight(dt)
 
     if flight.Phase=="Climb" then
         flight.Phase="Cruise"
-
     elseif flight.Phase=="Cruise" then
         flight.Phase="Land"
-
     elseif not flight.Exact then
         local npc=FruitNPC(flight.Kind)
         if npc then
@@ -1829,13 +1528,12 @@ local function UpdateFruitFlight(dt)
             flight.CruiseY=math.max(hrp.Position.Y,flight.Target.Y)+80
             flight.Phase="Climb"
         else
-            EndFruitFlight(false,
-                "Reached "..(FruitAreaNames[game.PlaceId] or "area")
-                .."; exact NPC not loaded")
+            EndFruitFlight(false,"Reached "..
+                (FruitAreaNames[game.PlaceId] or "area")..
+                "; exact NPC not loaded")
         end
     else
-        EndFruitFlight(true,
-            "Arrived at "..FruitNPCNames[flight.Kind])
+        EndFruitFlight(true,"Arrived at "..FruitNPCNames[flight.Kind])
     end
 end
 
@@ -1843,11 +1541,9 @@ end
 
 local function FruitClient()
     if Fruits.Client then return Fruits.Client end
-
     local folder=RS:FindFirstChild("Controllers")
     local module=folder and folder:FindFirstChild("GachaClient")
     if not module then return nil end
-
     local ok,client=pcall(require,module)
     if ok and type(client)=="table"
         and type(client.CheckGachaAsync)=="function"
@@ -1856,27 +1552,22 @@ local function FruitClient()
     end
     return Fruits.Client
 end
-
 local function FruitCheckData(data)
     if type(data)~="table" then
         return false,"Status unavailable",nil
     end
-
     if type(data.Level)=="table"
         and data.Level.RequirementMet==false then
         return false,"Level requirement not met",nil
     end
-
     local restriction=data.PaidRandomItemsRestricted
     if type(restriction)=="table" and restriction.Value==true then
         return false,"Gacha restricted",nil
     end
-
     local cooldown=data.Cooldown
     if type(cooldown)~="table" then
         return false,"Cooldown unknown",nil
     end
-
     if cooldown.RequirementMet==false then
         local finish=tonumber(cooldown.TimeEnds)
         local remaining
@@ -1889,23 +1580,18 @@ local function FruitCheckData(data)
                 remaining=finish
             end
         end
-
         return false,"On cooldown",
             remaining and math.max(0,remaining) or nil
     end
-
     if cooldown.RequirementMet~=true then
         return false,"Cooldown unknown",nil
     end
-
     if type(data.Price)~="table"
         or data.Price.RequirementMet~=true then
         return false,"Not enough Beli",nil
     end
-
     return true,"Ready",0
 end
-
 local function ApplyFruitCheck(data)
     local ready,status,remaining=FruitCheckData(data)
     Fruits.Ready,Fruits.Status=ready,status
@@ -1913,33 +1599,23 @@ local function ApplyFruitCheck(data)
         and os.clock()+remaining or nil
     return ready,status
 end
-
 local function CheckFruitsGacha()
     if Fruits.CheckBusy or not S.Running then return end
-
     Fruits.CheckBusy=true
     Fruits.NextCheck=os.clock()+20
     local client=FruitClient()
-
     if client then
         local ok,data=pcall(function()
-            return client.CheckGachaAsync(
-                "ZiolesGacha","Blox Fruit Gacha"
-            )
+            return client.CheckGachaAsync("ZiolesGacha","Blox Fruit Gacha")
         end)
-        if ok then
-            ApplyFruitCheck(data)
-        else
-            ApplyFruitCheck(nil)
-        end
+        if ok then ApplyFruitCheck(data)
+        else ApplyFruitCheck(nil) end
     else
         Fruits.Ready,Fruits.Status,Fruits.Deadline=
             false,"Controller unavailable",nil
     end
-
     Fruits.CheckBusy=false
 end
-
 local function StopFruitAuto()
     Fruits.AutoRoll=false
     if Fruits.Toggle then
@@ -1948,13 +1624,9 @@ local function StopFruitAuto()
 end
 
 local function FruitRollCycle()
-    if Fruits.RollBusy or not Fruits.AutoRoll
-        or not Fruits.Ready or not S.Running
-        or S.FruitFlight
-        or os.clock()<Fruits.NextAttempt then
-        return
-    end
-
+    if Fruits.RollBusy or not Fruits.AutoRoll or not Fruits.Ready
+        or not S.Running or S.FruitFlight or S.PvPFlight
+        or os.clock()<Fruits.NextAttempt then return end
     Fruits.RollBusy=true
     S.FruitPurchaseLock=true
     Fruits.NextAttempt=os.clock()+120
@@ -1965,33 +1637,26 @@ local function FruitRollCycle()
             if not client then
                 return false,"Gacha controller unavailable"
             end
-
             local data=client.CheckGachaAsync(
                 "ZiolesGacha","Blox Fruit Gacha"
             )
-
             local ready,reason=ApplyFruitCheck(data)
             if not ready or not Fruits.AutoRoll then
                 return false,reason
             end
-
             local flight,errorText=BeginFruitFlight("Gacha",true)
             if not flight then return false,errorText end
 
             while S.Running and Fruits.AutoRoll and not flight.Done do
                 task.wait(0.2)
             end
-
             if not flight.Done then
                 if S.FruitFlight==flight then
                     EndFruitFlight(false,"Auto Roll cancelled")
                 end
                 return false,"Auto Roll cancelled"
             end
-
-            if not flight.Success then
-                return false,flight.Message
-            end
+            if not flight.Success then return false,flight.Message end
             if not S.Running or not Fruits.AutoRoll then
                 return false,"Cancelled"
             end
@@ -2004,7 +1669,6 @@ local function FruitRollCycle()
 
             local purchased,failure=
                 client.PurchaseGachaAsync("ZiolesGacha")
-
             if purchased==true then
                 Fruits.Ready,Fruits.Status=
                     false,"Purchase accepted; checking timer"
@@ -2015,17 +1679,13 @@ local function FruitRollCycle()
             end
 
             local rejection=type(failure)=="table"
-                and (failure.ErrorMessage or failure.Message)
-                or failure
-
-            return false,
-                "Purchase not confirmed: "
-                ..tostring(rejection or "Unknown")
+                and (failure.ErrorMessage or failure.Message) or failure
+            return false,"Purchase not confirmed: "..
+                tostring(rejection or "Unknown")
         end)
 
         Fruits.RollBusy=false
         S.FruitPurchaseLock=false
-
         if not S.Running then return end
 
         if not ok then
@@ -2054,7 +1714,6 @@ local function FruitScheduler()
         if rotation~=Fruits.Rotation then
             Fruits.Rotation,Fruits.NextStock=rotation,0
         end
-
         if now>=Fruits.NextStock and not Fruits.StockBusy then
             Fruits.NextStock=now+45
             task.spawn(function()
@@ -2065,7 +1724,6 @@ local function FruitScheduler()
                 end
             end)
         end
-
         if now>=Fruits.NextCheck and not Fruits.CheckBusy then
             Fruits.NextCheck=now+20
             task.spawn(function()
@@ -2076,30 +1734,149 @@ local function FruitScheduler()
                 end
             end)
         end
-
         if Fruits.Deadline and now>=Fruits.Deadline then
             Fruits.Deadline=nil
-            Fruits.Ready,Fruits.Status=
-                false,"Cooldown ended; verifying"
+            Fruits.Ready,Fruits.Status=false,"Cooldown ended; verifying"
             Fruits.NextCheck=0
         end
-
-        if Fruits.AutoRoll and Fruits.Ready
-            and not Fruits.RollBusy and not S.FruitFlight
+        if Fruits.AutoRoll and Fruits.Ready and not Fruits.RollBusy
+            and not S.FruitFlight and not S.PvPFlight
             and now>=Fruits.NextAttempt then
             FruitRollCycle()
         end
 
         FruitInfo("FruitStock",Fruits.Stock)
-        FruitInfo("FruitRestock",
-            FruitTime(14400-os.time()%14400))
+        FruitInfo("FruitRestock",FruitTime(14400-os.time()%14400))
         FruitInfo("FruitCooldown",
-            Fruits.Deadline
-                and FruitTime(Fruits.Deadline-now)
-                or (Fruits.Ready and "Ready" or Fruits.Status))
-
+            Fruits.Deadline and FruitTime(Fruits.Deadline-now)
+            or (Fruits.Ready and "Ready" or Fruits.Status))
         task.wait(1)
     end
+end
+
+-- PVP
+
+local PvP={
+    Selected=nil,Dropdown=nil,Lookup={},
+    Status=nil,LastStatus=""
+}
+
+local function PvPStatus(message)
+    if PvP.LastStatus==message then return end
+    PvP.LastStatus=message
+    if PvP.Status then
+        pcall(function() PvP.Status:SetValue(message) end)
+    end
+end
+local function PvPTargetRoot(player)
+    local character=player and player.Character
+    local humanoid=character
+        and character:FindFirstChildOfClass("Humanoid")
+    local root=character and character:FindFirstChild("HumanoidRootPart")
+    if humanoid and humanoid.Health>0 and root then return root end
+end
+local function RefreshPvPPlayers()
+    local options,lookup={},{}
+    for _,player in ipairs(Players:GetPlayers()) do
+        if player~=P then
+            local label=player.DisplayName.." (@"..player.Name..")"
+            table.insert(options,label)
+            lookup[label]=player
+        end
+    end
+    table.sort(options)
+    PvP.Lookup=lookup
+    if PvP.Dropdown then
+        pcall(function() PvP.Dropdown:SetValues(options) end)
+    end
+    if PvP.Selected and PvP.Selected.Parent~=Players then
+        PvP.Selected=nil
+    end
+    if #options==0 then PvPStatus("No other players in server") end
+    return #options
+end
+local function EndPvPFlight(message)
+    if not S.PvPFlight then return end
+    S.PvPFlight=nil
+    PvPStatus(message or "Flight stopped")
+    ClearFlight()
+    if not (A.Farm or A.Chest or S.FruitFlight
+        or S.FruitPurchaseLock) then
+        RestoreNoclip()
+        local _,humanoid=Char()
+        if humanoid then humanoid.AutoRotate=true end
+    end
+end
+local function StartPvPFlight()
+    if S.PvPFlight or S.FruitFlight or S.FruitPurchaseLock then
+        Notify("PvP","Stop the existing flight or wait for Auto Roll")
+        return
+    end
+    local player=PvP.Selected
+    if not player or player.Parent~=Players then
+        Notify("PvP","Choose a player first")
+        return
+    end
+    local _,_,root=Char()
+    local targetRoot=PvPTargetRoot(player)
+    if not root or not targetRoot then
+        Notify("PvP","A character is not loaded")
+        return
+    end
+    S.PvPFlight={
+        Player=player,Phase="Climb",
+        CruiseY=math.max(root.Position.Y,targetRoot.Position.Y)+80,
+        Deadline=os.clock()+180
+    }
+    PvPStatus("Flying to @"..player.Name)
+end
+
+local function UpdatePvPFlight(dt)
+    local flight=S.PvPFlight
+    if not flight then return end
+    local _,_,root=Char()
+    local target=PvPTargetRoot(flight.Player)
+
+    if not root or not target or flight.Player.Parent~=Players then
+        EndPvPFlight("Target left or character unavailable")
+        return
+    end
+    if os.clock()>=flight.Deadline then
+        EndPvPFlight("Flight timed out")
+        return
+    end
+
+    local targetPos=target.Position
+    local goal
+    if flight.Phase=="Climb" then
+        goal=Vector3.new(root.Position.X,flight.CruiseY,root.Position.Z)
+        if (root.Position-goal).Magnitude<7 then
+            flight.Phase="Cruise"
+        end
+    elseif flight.Phase=="Cruise" then
+        goal=Vector3.new(
+            targetPos.X,
+            math.max(flight.CruiseY,targetPos.Y+20),
+            targetPos.Z
+        )
+        local flat=Vector3.new(
+            root.Position.X-targetPos.X,0,
+            root.Position.Z-targetPos.Z
+        )
+        if flat.Magnitude<=14 then flight.Phase="Land" end
+    else
+        goal=targetPos+Vector3.new(5,3,0)
+        if (root.Position-goal).Magnitude<=8 then
+            EndPvPFlight("Arrived near @"..flight.Player.Name)
+            return
+        end
+        local flat=Vector3.new(
+            root.Position.X-targetPos.X,0,
+            root.Position.Z-targetPos.Z
+        )
+        if flat.Magnitude>60 then flight.Phase="Cruise" end
+    end
+    if goal then Move(goal,320,dt,targetPos) end
 end
 
 -- CONTROLS
@@ -2110,56 +1887,40 @@ local function SyncToggle(toggle,value)
     pcall(function() toggle:SetValue(value) end)
     S.Updating=false
 end
-
 local function SetFarm(enabled)
     if A.Farm==enabled then return end
-
     if enabled and A.Chest then
         A.Chest=false
         SyncToggle(S.ChestToggle,false)
         Stop()
     end
-
     A.Farm=enabled
     S.RetreatUntil=0
     ResetQuest()
-
     if enabled then Flight() else Stop() end
     SyncToggle(S.FarmToggle,enabled)
-
-    Notify(
-        enabled and "Auto Farm Enabled" or "Auto Farm Disabled",
-        "Hotkey: "..A.Hotkey
-    )
+    Notify(enabled and "Auto Farm Enabled"
+        or "Auto Farm Disabled","Hotkey: "..A.Hotkey)
 end
-
 local function SetChest(enabled)
     if A.Chest==enabled then return end
-
     if enabled and A.Farm then
         A.Farm=false
         SyncToggle(S.FarmToggle,false)
         Stop()
     end
-
     A.Chest=enabled
     S.ChestTarget=nil
-
     if enabled then
         RefreshChests()
         Flight()
     else
         Stop()
     end
-
     SyncToggle(S.ChestToggle,enabled)
-
-    Notify(
-        enabled and "Auto Chest Enabled" or "Auto Chest Disabled",
-        "Aevrix Hub"
-    )
+    Notify(enabled and "Auto Chest Enabled"
+        or "Auto Chest Disabled","Aevrix Hub")
 end
-
 local function Connect(signal,callback)
     table.insert(S.Connections,signal:Connect(callback))
 end
@@ -2170,11 +1931,12 @@ end)
 
 Connect(Run.Heartbeat,function(dt)
     if not Moving() then return end
-
     local ok,err=pcall(function()
         if not Flight() then return end
 
-        if S.FruitFlight then
+        if S.PvPFlight then
+            UpdatePvPFlight(dt)
+        elseif S.FruitFlight then
             UpdateFruitFlight(dt)
         elseif S.FruitPurchaseLock then
             Hold()
@@ -2184,7 +1946,6 @@ Connect(Run.Heartbeat,function(dt)
             SetFarm(false)
         end
     end)
-
     if not ok and os.clock()-S.LastError>3 then
         S.LastError=os.clock()
         warn("[Aevrix Hub]",err)
@@ -2192,6 +1953,7 @@ Connect(Run.Heartbeat,function(dt)
 end)
 
 Connect(P.CharacterAdded,function()
+    if S.PvPFlight then EndPvPFlight("Character reset") end
     if S.FruitFlight then
         EndFruitFlight(false,"Character reset")
     end
@@ -2210,13 +1972,11 @@ Connect(UIS.InputBegan,function(input)
     end
 end)
 
-task.spawn(function()
-    pcall(WatchNotifications)
-end)
+task.spawn(function() pcall(WatchNotifications) end)
 
 task.spawn(function()
     while S.Running do
-        if A.Farm and not S.FruitFlight
+        if A.Farm and not S.PvPFlight and not S.FruitFlight
             and not S.FruitPurchaseLock then
             local ok,err=pcall(UpdateQuest)
             if not ok and os.clock()-S.LastError>3 then
@@ -2234,12 +1994,10 @@ task.spawn(function()
             S.LastMemory=os.clock()
             pcall(RememberNPCs)
         end
-
         if (A.Chest or A.ChestESP)
             and os.clock()-S.LastChest>=5 then
             pcall(RefreshChests)
         end
-
         pcall(UpdateESP)
         task.wait(0.5)
     end
@@ -2259,8 +2017,6 @@ task.spawn(function()
     end
 end)
 
--- CLEANUP
-
 local function Cleanup()
     S.Running=false
     A.Farm=false
@@ -2268,31 +2024,21 @@ local function Cleanup()
     A.Stats=false
     Fruits.AutoRoll=false
     S.FruitPurchaseLock=false
-
-    if S.FruitFlight then
-        EndFruitFlight(false,"Hub closed")
-    end
-
+    if S.FruitFlight then EndFruitFlight(false,"Hub closed") end
+    if S.PvPFlight then EndPvPFlight("Hub closed") end
     Stop()
     ResetQuest()
-
     for _,connection in ipairs(S.Connections) do
         pcall(function() connection:Disconnect() end)
     end
-
     for _,connection in pairs(S.Watched) do
         pcall(function() connection:Disconnect() end)
     end
-
-    for object in pairs(S.Highlights) do
-        RemoveESP(object)
-    end
-
+    for object in pairs(S.Highlights) do RemoveESP(object) end
     if S.Library then
         pcall(function() S.Library:Unload() end)
     end
 end
-
 Env.AevrixCleanup=Cleanup
 
 -- FLUENT UI
@@ -2309,20 +2055,18 @@ if not ok then
 end
 
 S.Library=Lib
-
 Notify=function(title,message)
     pcall(function()
         Lib:Notify({
             Title="Aevrix Hub | "..title,
-            Content=message,
-            Duration=3
+            Content=message,Duration=3
         })
     end)
 end
 
 local Window=Lib:CreateWindow({
     Title="Aevrix Hub",
-    SubTitle="Auto Farm + Fruits V12",
+    SubTitle="Auto Farm + Fruits + PvP V13",
     TabWidth=145,
     Size=UDim2.fromOffset(650,455),
     Resize=true,
@@ -2332,18 +2076,11 @@ local Window=Lib:CreateWindow({
     MinimizeKey=Enum.KeyCode.RightControl
 })
 
-local FarmTab=Window:CreateTab({
-    Title="Auto Farm",Icon="swords"
-})
-local ChestTab=Window:CreateTab({
-    Title="Auto Chest",Icon="package"
-})
-local FruitsTab=Window:CreateTab({
-    Title="Fruits",Icon="apple"
-})
-local ESPTab=Window:CreateTab({
-    Title="ESP",Icon="eye"
-})
+local FarmTab=Window:CreateTab({Title="Auto Farm",Icon="swords"})
+local ChestTab=Window:CreateTab({Title="Auto Chest",Icon="package"})
+local FruitsTab=Window:CreateTab({Title="Fruits",Icon="apple"})
+local PvPTab=Window:CreateTab({Title="PvP",Icon="swords"})
+local ESPTab=Window:CreateTab({Title="ESP",Icon="eye"})
 local StatsTab=Window:CreateTab({
     Title="Auto Stats",Icon="chart-no-axes-column"
 })
@@ -2353,21 +2090,15 @@ local SettingsTab=Window:CreateTab({
 
 local function Toggle(tab,id,title,key)
     return tab:CreateToggle(id,{
-        Title=title,
-        Default=A[key],
-
+        Title=title,Default=A[key],
         Callback=function(value)
             if S.Updating then return end
-
             if key=="Farm" then
                 SetFarm(value)
-
             elseif key=="Chest" then
                 SetChest(value)
-
             elseif key=="AcceptBossQuest" then
                 A.AcceptBossQuest=value
-
                 if A.Farm and S.Quest
                     and IsBossQuestRecord(S.Quest) then
                     if not value and QuestVisible() then
@@ -2388,26 +2119,16 @@ end
 
 local function Slider(tab,id,title,key,min,max,round)
     tab:CreateSlider(id,{
-        Title=title,
-        Min=min,
-        Max=max,
-        Default=A[key],
-        Rounding=round or 0,
-        Callback=function(value)
-            A[key]=value
-        end
+        Title=title,Min=min,Max=max,
+        Default=A[key],Rounding=round or 0,
+        Callback=function(value) A[key]=value end
     })
 end
-
 local function Drop(tab,id,title,key,values)
     tab:CreateDropdown(id,{
-        Title=title,
-        Values=values,
-        Multi=false,
+        Title=title,Values=values,Multi=false,
         Default=table.find(values,A[key]) or 1,
-        Callback=function(value)
-            A[key]=value
-        end
+        Callback=function(value) A[key]=value end
     })
 end
 
@@ -2417,26 +2138,20 @@ FarmTab:CreateParagraph("FarmInfo",{
     Title="Auto Farm",
     Content="Default hotkey is F. Change it in Settings."
 })
-
 S.FarmToggle=Toggle(FarmTab,"Farm","Auto Farm","Farm")
 Toggle(FarmTab,"AcceptBossQuest",
     "Accept Boss Quest","AcceptBossQuest")
-
 Slider(FarmTab,"Target","Target Level","TargetLevel",1,3000)
 Slider(FarmTab,"Speed","Movement Speed","Speed",50,650)
-
 Drop(FarmTab,"Weapon","Weapon","Weapon",
     {"Melee","Sword","Gun","Fruit"})
-
 Slider(FarmTab,"Range","Attack Range","Range",3,50)
 Slider(FarmTab,"Delay","Attack Interval","Delay",0.005,1,2)
 Toggle(FarmTab,"Skills","Auto Skills","Skills")
-
 FarmTab:CreateParagraph("SkillsWarning",{
     Title="Auto Skills",
     Content="May cause you to get hit."
 })
-
 Slider(FarmTab,"SkillCooldown",
     "Skill Cooldown","SkillCooldown",1,30)
 
@@ -2451,7 +2166,6 @@ Slider(ChestTab,"ChestSpeed",
 Toggle(ESPTab,"PlayerESP","Player ESP","PlayerESP")
 Drop(ESPTab,"PlayerColor","Player Color",
     "PlayerColor",ColorNames)
-
 Toggle(ESPTab,"ChestESP","Chest ESP","ChestESP")
 Drop(ESPTab,"ChestColor","Chest Color",
     "ChestColor",ColorNames)
@@ -2459,7 +2173,6 @@ Drop(ESPTab,"ChestColor","Chest Color",
 -- AUTO STATS TAB
 
 Toggle(StatsTab,"AutoStats","Auto Stats","Stats")
-
 StatsTab:CreateDropdown("MultiStats",{
     Title="Stats",
     Values=StatNames,
@@ -2476,7 +2189,6 @@ StatsTab:CreateDropdown("MultiStats",{
         S.StatIndex=1
     end
 })
-
 Slider(StatsTab,"Points","Points Per Use","Points",1,100)
 
 -- FRUITS TAB
@@ -2486,7 +2198,6 @@ local function FruitParagraph(id,title,initial)
         Title=title,Content=initial
     })
 end
-
 FruitParagraph("FruitStock","Fruits In Stock","Loading...")
 FruitParagraph("FruitRestock","Next Stock Refresh","Loading...")
 FruitParagraph("FruitCooldown","Next Fruit Roll","Checking...")
@@ -2497,14 +2208,12 @@ Fruits.Toggle=FruitsTab:CreateToggle("AutoRollFruit",{
     Callback=function(value)
         Fruits.AutoRoll=value
         if value then Fruits.NextCheck=0 end
-
         if not value and S.FruitFlight
             and S.FruitFlight.Automatic then
             EndFruitFlight(false,"Auto Roll disabled")
         end
     end
 })
-
 FruitsTab:CreateButton({
     Title="Fly to Blox Fruit Gacha",
     Callback=function()
@@ -2512,7 +2221,6 @@ FruitsTab:CreateButton({
         if not flight then Notify("Fruits",err) end
     end
 })
-
 FruitsTab:CreateButton({
     Title="Fly to Blox Fruit Dealer",
     Callback=function()
@@ -2520,7 +2228,6 @@ FruitsTab:CreateButton({
         if not flight then Notify("Fruits",err) end
     end
 })
-
 FruitsTab:CreateButton({
     Title="Stop Flight",
     Callback=function()
@@ -2530,8 +2237,57 @@ FruitsTab:CreateButton({
         end
     end
 })
-
 task.spawn(FruitScheduler)
+
+-- PVP TAB
+
+PvP.Dropdown=PvPTab:CreateDropdown("PvPPlayer",{
+    Title="Select Player",
+    Values={},
+    Multi=false,
+    Default=nil,
+    Callback=function(value)
+        PvP.Selected=PvP.Lookup[value]
+    end
+})
+
+PvP.Status=PvPTab:CreateParagraph("PvPStatus",{
+    Title="Flight Status",
+    Content="Select a player"
+})
+
+PvPTab:CreateButton({
+    Title="Fly to Selected Player",
+    Callback=StartPvPFlight
+})
+
+PvPTab:CreateButton({
+    Title="Stop PvP Flight",
+    Callback=function()
+        EndPvPFlight("Flight cancelled")
+    end
+})
+
+PvPTab:CreateButton({
+    Title="Refresh Player List",
+    Callback=function()
+        Notify("PvP","Players found: "..RefreshPvPPlayers())
+    end
+})
+
+Connect(Players.PlayerAdded,function()
+    task.defer(RefreshPvPPlayers)
+end)
+
+Connect(Players.PlayerRemoving,function(player)
+    if PvP.Selected==player then
+        PvP.Selected=nil
+        EndPvPFlight("Target left server")
+    end
+    task.defer(RefreshPvPPlayers)
+end)
+
+RefreshPvPPlayers()
 
 -- SETTINGS TAB
 
@@ -2543,9 +2299,8 @@ for i=1,10 do
     table.insert(Hotkeys,"F"..i)
 end
 
-Drop(SettingsTab,"Hotkey","Auto Farm Hotkey",
-    "Hotkey",Hotkeys)
+Drop(SettingsTab,"Hotkey","Auto Farm Hotkey","Hotkey",Hotkeys)
 
 Window:SelectTab(1)
-Notify("Loaded","Auto Farm + Fruits V12")
-print("[Aevrix Hub V12] Loaded")
+Notify("Loaded","Auto Farm + Fruits + PvP V13")
+print("[Aevrix Hub V13] Loaded")
