@@ -16,6 +16,11 @@ if type(Env.AevrixCleanup) == "function" then
     pcall(Env.AevrixCleanup)
 end
 
+if type(Env.AevrixEggCleanup) == "function" then
+    pcall(Env.AevrixEggCleanup)
+    Env.AevrixEggCleanup = nil
+end
+
 local VIM
 pcall(function()
     VIM = game:GetService("VirtualInputManager")
@@ -32,6 +37,7 @@ local RegisterHit = Net and Net:FindFirstChild("RE/RegisterHit")
 
 local A = {
     Farm = false,
+    AcceptBossQuest = false,
     Chest = false,
     PlayerESP = false,
     ChestESP = false,
@@ -272,7 +278,8 @@ local function BossAlive(name)
 end
 
 local function Moving()
-    return S.Running and (A.Farm or A.Chest)
+    return S.Running and (A.Farm or A.Chest
+        or S.FruitFlight ~= nil or S.FruitPurchaseLock == true)
 end
 
 -- MOVEMENT
@@ -722,22 +729,6 @@ local function ObjectiveProgress(text,quest)
 end
 
 -- QUEST STATE
---
--- RequestSent:
---   Prevents repeating StartQuest for a quest.
---
--- FarmingReady:
---   Lets movement start independently of the UI.
---
--- GuiConfirmed:
---   Records that this specific quest was seen.
---
--- Completion:
---   May be detected via the quest panel,
---   notifications, or tracked NPC deaths.
---
--- Completing a quest no longer requires
--- GuiConfirmed to be true.
 
 local function ResetCombat()
     S.CombatTarget = nil
@@ -787,7 +778,8 @@ local function NewQuest(record,adopted)
         Count = record.Count,
         Boss = record.Boss,
 
-        FarmingReady = adopted == true,
+        NoQuest = record.Boss and not A.AcceptBossQuest and not adopted,
+        FarmingReady = adopted == true or (record.Boss and not A.AcceptBossQuest),
         GuiConfirmed = adopted == true,
 
         RequestSent = false,
@@ -844,6 +836,7 @@ local function RequestQuest(quest)
         or quest.RequestSent
         or quest.RequestBusy
         or quest.GuiConfirmed
+        or (quest.Boss and not A.AcceptBossQuest)
         or not quest.ID
         or not quest.Index
     then
@@ -854,7 +847,6 @@ local function RequestQuest(quest)
         return
     end
 
-    -- ONE StartQuest request per quest.
     quest.RequestSent = true
     quest.RequestBusy = true
     quest.RequestedAt = os.clock()
@@ -892,9 +884,6 @@ local function RequestQuest(quest)
                 result
             )
         end
-
-        -- Never clear RequestSent here.
-        -- Clearing it caused the quest-reset loop.
     end)
 end
 
@@ -902,8 +891,9 @@ local function RegisterKill(npc,quest)
     if not quest
         or S.Quest ~= quest
         or quest.CountedNPCs[npc]
-        or not quest.RequestSent
+        or (not quest.RequestSent
             and not quest.GuiConfirmed
+            and not quest.NoQuest)
     then
         return
     end
@@ -1063,7 +1053,14 @@ local function UpdateQuest()
 
     local quest = S.Quest
 
-    -- Adopt an existing active quest.
+    if quest and quest.NoQuest then
+        if not BossAlive(quest.Enemy) then
+            S.BossCooldown[Normal(quest.Enemy)] = now+5
+            ResetQuest()
+        end
+        return
+    end
+
     if not quest and visible then
         if detected then
             local record = FindQuestRecord(detected)
@@ -1081,7 +1078,6 @@ local function UpdateQuest()
         return
     end
 
-    -- No quest locked: immediately select the next one.
     if not quest then
         if visible then return end
 
@@ -1102,7 +1098,6 @@ local function UpdateQuest()
         return
     end
 
-    -- Boss abandon recovery.
     if quest.Abandoning then
         if not visible then
             quest.AbandonHidden =
@@ -1146,8 +1141,6 @@ local function UpdateQuest()
             and Normal(detected) ~= Normal(quest.Enemy)
             and not quest.GuiConfirmed
         then
-            -- Adopt the quest the game is actually showing,
-            -- rather than request over it.
             local record = FindQuestRecord(detected)
 
             if record then
@@ -1187,8 +1180,6 @@ local function UpdateQuest()
         quest.HiddenSince = quest.HiddenSince or now
     end
 
-    -- Completion notifications can arrive after
-    -- the quest panel has already disappeared.
     if CompletionText(text) then
         quest.CompletionNotice = true
     end
@@ -1199,10 +1190,6 @@ local function UpdateQuest()
 
     local completion = HasCompletionEvidence(quest)
 
-    -- PRIMARY COMPLETION:
-    -- Actual completion evidence and old panel gone.
-    --
-    -- Does NOT require GuiConfirmed.
     if QuestHasStarted(quest)
         and not visible
         and completion
@@ -1212,12 +1199,6 @@ local function UpdateQuest()
         return
     end
 
-    -- SECONDARY COMPLETION:
-    -- The actual quest UI was confirmed earlier,
-    -- farming happened, and that UI remained gone.
-    --
-    -- This handles quests that close before N/N
-    -- can be read from the display.
     if quest.GuiConfirmed
         and quest.EverVisible
         and quest.FarmStarted
@@ -1229,12 +1210,6 @@ local function UpdateQuest()
         return
     end
 
-    -- FALLBACK COMPLETION:
-    -- If the quest GUI was never detectable,
-    -- use tracked kills after one-shot StartQuest.
-    --
-    -- This does not restart the quest after one kill:
-    -- every required kill must have been tracked.
     if not quest.GuiConfirmed
         and quest.RequestSent
         and quest.Count
@@ -1246,7 +1221,6 @@ local function UpdateQuest()
         return
     end
 
-    -- Boss recovery remains separate from normal quests.
     if quest.Boss then
         if BossAlive(quest.Enemy) then
             quest.BossMissingSince = nil
@@ -1274,15 +1248,6 @@ local function UpdateQuest()
         return
     end
 
-    -- NORMAL QUEST LOCK
-    --
-    -- There are deliberately no StartQuest
-    -- retries here.
-    --
-    -- Killing an NPC does not unlock the quest.
-    -- A boss appearing does not change this quest.
-    --
-    -- Movement can start after the original request.
     if not quest.FarmingReady
         and quest.RequestSent
         and now-quest.RequestedAt >= 0.65
@@ -1360,7 +1325,6 @@ local function RemoteAttack(npc)
 
     S.LastRemote = os.clock()
 
-    -- Working 40-stud attack method.
     pcall(function()
         RegisterAttack:FireServer(0.1)
         RegisterHit:FireServer(part,{{npc,part}})
@@ -1580,8 +1544,6 @@ local function UpdateFarm(dt)
         return true
     end
 
-    -- Moving and attacking are independent
-    -- of the quest GUI.
     if not quest.FarmingReady then
         if quest.RequestSent
             and os.clock()-quest.RequestedAt >= 0.65
@@ -1664,8 +1626,6 @@ local function UpdateFarm(dt)
             npcRoot.Position
     end
 
-    -- Track each target until the quest finishes.
-    -- Connections aren't discarded between NPCs.
     TrackNPC(npc,quest)
 
     if S.CombatTarget ~= npc then
@@ -2152,9 +2112,350 @@ local function DistributeStats()
     S.StatBusy = false
 end
 
--- CONTROLS
-
 local Notify = function() end
+
+-- FRUITS
+
+local Fruits = {
+    AutoRoll = false,
+    Stock = "Loading...", StockBusy = false, NextStock = 0, Rotation = -1,
+    Client = nil, CheckBusy = false, NextCheck = 0,
+    Ready = false, Status = "Checking...", Deadline = nil,
+    RollBusy = false, NextAttempt = 0,
+    FlightStatus = "Idle", Paragraphs = {}, Shown = {},
+    Toggle = nil
+}
+
+local FruitNPCNames = {
+    Gacha = "Blox Fruit Gacha",
+    Dealer = "Blox Fruit Dealer"
+}
+
+local function FruitTime(seconds)
+    seconds = math.max(0,math.floor(tonumber(seconds) or 0))
+    return string.format("%02d:%02d:%02d",
+        math.floor(seconds/3600),math.floor(seconds%3600/60),seconds%60)
+end
+
+local function FruitInfo(id,text)
+    text = tostring(text)
+    if Fruits.Shown[id] == text then return end
+    local p = Fruits.Paragraphs[id]
+    if p then
+        local ok = pcall(function() p:SetValue(text) end)
+        if ok then Fruits.Shown[id] = text end
+    end
+end
+
+local function FruitStock()
+    if Fruits.StockBusy or not S.Running then return end
+    Fruits.StockBusy = true
+    Fruits.NextStock = os.clock()+45
+    local ok,data = pcall(function() return Comm:InvokeServer("GetFruits") end)
+    if ok and type(data) == "table" then
+        local names,seen = {},{}
+        for _,fruit in pairs(data) do
+            if type(fruit) == "table" and type(fruit.Name) == "string"
+                and fruit.OnSale == true and not seen[fruit.Name] then
+                seen[fruit.Name] = true
+                table.insert(names,fruit.Name)
+            end
+        end
+        table.sort(names)
+        Fruits.Stock = #names > 0 and table.concat(names,"\n")
+            or "No fruits in stock returned"
+    else
+        Fruits.Stock = "Stock unavailable; retrying"
+    end
+    Fruits.StockBusy = false
+end
+
+local function FruitNPC(kind)
+    local wanted = FruitNPCNames[kind]
+    if not wanted then return end
+    local _,_,me = Char()
+    local best,bestDistance = nil,math.huge
+    for _,npc in ipairs(workspace:GetDescendants()) do
+        if npc:IsA("Model") and npc.Name:lower() == wanted:lower() then
+            local part = Root(npc) or npc:FindFirstChild("Head")
+            if part and part:IsA("BasePart") then
+                local distance = me and (me.Position-part.Position).Magnitude or 0
+                if distance < bestDistance then
+                    best,bestDistance = part,distance
+                end
+            end
+        end
+    end
+    return best
+end
+
+local function FruitMiddleTown()
+    if game.PlaceId ~= 2753915549 then return nil end
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {P.Character}
+    params.IgnoreWater = true
+    local hit = workspace:Raycast(Vector3.new(-656,1000,1574),
+        Vector3.new(0,-1500,0),params)
+    return hit and hit.Position+Vector3.new(0,5,0) or nil
+end
+
+local function EndFruitFlight(success,message)
+    local flight = S.FruitFlight
+    if not flight then return end
+    flight.Done,flight.Success = true,success == true
+    flight.Message = message
+    Fruits.FlightStatus = message or (success and "Arrived" or "Flight stopped")
+    S.FruitFlight = nil
+    ClearFlight()
+    if not (A.Farm or A.Chest) then
+        RestoreNoclip()
+        local _,humanoid = Char()
+        if humanoid then humanoid.AutoRotate = true end
+    end
+end
+
+local function BeginFruitFlight(kind,automatic)
+    if S.FruitFlight then return nil,"Flight already active" end
+    local _,_,hrp = Char()
+    if not hrp then return nil,"Character not ready" end
+    local npc = FruitNPC(kind)
+    local target = npc and (npc.Position+Vector3.new(4,3,0))
+        or FruitMiddleTown()
+    if not target then return nil,"NPC not loaded in this sea" end
+    local flight = {
+        Kind = kind, Automatic = automatic == true,
+        Exact = npc ~= nil, Target = target,
+        CruiseY = math.max(hrp.Position.Y,target.Y)+80,
+        Phase = "Climb", Deadline = os.clock()+180,
+        Done = false, Success = false
+    }
+    S.FruitFlight = flight
+    Fruits.FlightStatus = "Flying to "..FruitNPCNames[kind]
+    return flight
+end
+
+local function UpdateFruitFlight(dt)
+    local flight = S.FruitFlight
+    if not flight then return end
+    local _,_,hrp = Char()
+    if not hrp or os.clock() >= flight.Deadline then
+        EndFruitFlight(false,"Flight timed out / character reset")
+        return
+    end
+    local goal,radius
+    if flight.Phase == "Climb" then
+        goal = Vector3.new(hrp.Position.X,flight.CruiseY,hrp.Position.Z)
+        radius = 7
+    elseif flight.Phase == "Cruise" then
+        goal = Vector3.new(flight.Target.X,flight.CruiseY,flight.Target.Z)
+        radius = 11
+    else
+        goal = flight.Target
+        radius = 5
+    end
+    if (hrp.Position-goal).Magnitude > radius then
+        Move(goal,320,dt)
+        return
+    end
+    if flight.Phase == "Climb" then
+        flight.Phase = "Cruise"
+    elseif flight.Phase == "Cruise" then
+        flight.Phase = "Land"
+    elseif not flight.Exact then
+        local npc = FruitNPC(flight.Kind)
+        if npc then
+            flight.Exact = true
+            flight.Target = npc.Position+Vector3.new(4,3,0)
+            flight.CruiseY = math.max(hrp.Position.Y,flight.Target.Y)+80
+            flight.Phase = "Climb"
+        else
+            EndFruitFlight(false,"Reached town; exact NPC not loaded")
+        end
+    else
+        EndFruitFlight(true,"Arrived at "..FruitNPCNames[flight.Kind])
+    end
+end
+
+local function FruitClient()
+    if Fruits.Client then return Fruits.Client end
+    local folder = RS:FindFirstChild("Controllers")
+    local module = folder and folder:FindFirstChild("GachaClient")
+    if not module then return nil end
+    local ok,client = pcall(require,module)
+    if ok and type(client) == "table"
+        and type(client.CheckGachaAsync) == "function"
+        and type(client.PurchaseGachaAsync) == "function" then
+        Fruits.Client = client
+    end
+    return Fruits.Client
+end
+
+local function FruitCheckData(data)
+    if type(data) ~= "table" then return false,"Status unavailable",nil end
+    if type(data.Level) == "table" and data.Level.RequirementMet == false then
+        return false,"Level requirement not met",nil
+    end
+    local restriction = data.PaidRandomItemsRestricted
+    if type(restriction) == "table" and restriction.Value == true then
+        return false,"Gacha restricted",nil
+    end
+    local cooldown = data.Cooldown
+    if type(cooldown) ~= "table" then return false,"Cooldown unknown",nil end
+    if cooldown.RequirementMet == false then
+        local finish = tonumber(cooldown.TimeEnds)
+        local remaining
+        if finish then
+            if finish > 1e12 then
+                remaining = finish/1000-os.time()
+            elseif finish > 1e9 then
+                remaining = finish-os.time()
+            elseif finish >= 0 and finish <= 7200 then
+                remaining = finish
+            end
+        end
+        return false,"On cooldown",remaining and math.max(0,remaining) or nil
+    end
+    if cooldown.RequirementMet ~= true then
+        return false,"Cooldown unknown",nil
+    end
+    if type(data.Price) ~= "table" or data.Price.RequirementMet ~= true then
+        return false,"Not enough Beli",nil
+    end
+    return true,"Ready",0
+end
+
+local function ApplyFruitCheck(data)
+    local ready,status,remaining = FruitCheckData(data)
+    Fruits.Ready,Fruits.Status = ready,status
+    Fruits.Deadline = remaining and remaining > 0
+        and os.clock()+remaining or nil
+    return ready,status
+end
+
+local function CheckFruitsGacha()
+    if Fruits.CheckBusy or not S.Running then return end
+    Fruits.CheckBusy = true
+    Fruits.NextCheck = os.clock()+20
+    local client = FruitClient()
+    if client then
+        local ok,data = pcall(function()
+            return client.CheckGachaAsync("ZiolesGacha","Blox Fruit Gacha")
+        end)
+        if ok then ApplyFruitCheck(data)
+        else ApplyFruitCheck(nil) end
+    else
+        Fruits.Ready,Fruits.Status,Fruits.Deadline = false,"Controller unavailable",nil
+    end
+    Fruits.CheckBusy = false
+end
+
+local function StopFruitAuto()
+    Fruits.AutoRoll = false
+    if Fruits.Toggle then
+        pcall(function() Fruits.Toggle:SetValue(false) end)
+    end
+end
+
+local function FruitRollCycle()
+    if Fruits.RollBusy or not Fruits.AutoRoll or not Fruits.Ready
+        or not S.Running or S.FruitFlight
+        or os.clock() < Fruits.NextAttempt then return end
+    Fruits.RollBusy = true
+    S.FruitPurchaseLock = true
+    Fruits.NextAttempt = os.clock()+120
+    task.spawn(function()
+        local ok,success,message = pcall(function()
+            local client = FruitClient()
+            if not client then return false,"Gacha controller unavailable" end
+            local data = client.CheckGachaAsync("ZiolesGacha","Blox Fruit Gacha")
+            local ready,reason = ApplyFruitCheck(data)
+            if not ready or not Fruits.AutoRoll then return false,reason end
+            local flight,errorText = BeginFruitFlight("Gacha",true)
+            if not flight then return false,errorText end
+            while S.Running and Fruits.AutoRoll and not flight.Done do
+                task.wait(0.2)
+            end
+            if not flight.Done then
+                if S.FruitFlight == flight then EndFruitFlight(false,"Auto Roll cancelled") end
+                return false,"Auto Roll cancelled"
+            end
+            if not flight.Success then return false,flight.Message end
+            if not S.Running or not Fruits.AutoRoll then return false,"Cancelled" end
+            local updated = client.CheckGachaAsync("ZiolesGacha","Blox Fruit Gacha")
+            local canBuy,why = ApplyFruitCheck(updated)
+            if not canBuy then return false,why end
+            local purchased,failure = client.PurchaseGachaAsync("ZiolesGacha")
+            if purchased == true then
+                Fruits.Ready,Fruits.Status = false,"Purchase accepted; checking timer"
+                Fruits.Deadline = nil
+                Fruits.NextCheck = 0
+                Fruits.NextAttempt = os.clock()+120
+                return true,"Gacha purchase accepted"
+            end
+            local rejection = type(failure)=="table"
+                and (failure.ErrorMessage or failure.Message) or failure
+            return false,"Purchase not confirmed: "..tostring(rejection or "Unknown")
+        end)
+        Fruits.RollBusy = false
+        S.FruitPurchaseLock = false
+        if not S.Running then return end
+        if not ok then
+            Fruits.Status = "Roll error"
+            StopFruitAuto()
+            Notify("Fruits","Roll error: "..tostring(success))
+        elseif success then
+            Notify("Fruits",message)
+        elseif message and message:find("Purchase not confirmed",1,true) then
+            StopFruitAuto()
+            Notify("Fruits",message)
+        elseif message and message ~= "On cooldown" and message ~= "Cancelled" then
+            Fruits.NextCheck = 0
+            Notify("Fruits",message)
+        end
+    end)
+end
+
+local function FruitScheduler()
+    while S.Running do
+        local now = os.clock()
+        local rotation = math.floor(os.time()/14400)
+        if rotation ~= Fruits.Rotation then
+            Fruits.Rotation,Fruits.NextStock = rotation,0
+        end
+        if now >= Fruits.NextStock and not Fruits.StockBusy then
+            Fruits.NextStock = now+45
+            task.spawn(function()
+                local ok,err = pcall(FruitStock)
+                if not ok then Fruits.StockBusy=false;warn("[Aevrix Fruits]",err) end
+            end)
+        end
+        if now >= Fruits.NextCheck and not Fruits.CheckBusy then
+            Fruits.NextCheck = now+20
+            task.spawn(function()
+                local ok,err = pcall(CheckFruitsGacha)
+                if not ok then Fruits.CheckBusy=false;warn("[Aevrix Gacha]",err) end
+            end)
+        end
+        if Fruits.Deadline and now >= Fruits.Deadline then
+            Fruits.Deadline = nil
+            Fruits.Ready,Fruits.Status = false,"Cooldown ended; verifying"
+            Fruits.NextCheck = 0
+        end
+        if Fruits.AutoRoll and Fruits.Ready and not Fruits.RollBusy
+            and not S.FruitFlight and now >= Fruits.NextAttempt then
+            FruitRollCycle()
+        end
+        FruitInfo("FruitStock",Fruits.Stock)
+        FruitInfo("FruitRestock",FruitTime(14400-os.time()%14400))
+        FruitInfo("FruitCooldown",Fruits.Deadline
+            and FruitTime(Fruits.Deadline-now)
+            or (Fruits.Ready and "Ready" or Fruits.Status))
+        task.wait(1)
+    end
+end
+
+-- CONTROLS
 
 local function SyncToggle(toggle,value)
     if not toggle or S.Updating then return end
@@ -2244,7 +2545,13 @@ Connect(Run.Heartbeat,function(dt)
     local ok,err = pcall(function()
         if not Flight() then return end
 
-        if A.Chest then
+        if S.FruitFlight then
+            UpdateFruitFlight(dt)
+
+        elseif S.FruitPurchaseLock then
+            Hold()
+
+        elseif A.Chest then
             UpdateChest(dt)
 
         elseif A.Farm and not UpdateFarm(dt) then
@@ -2259,6 +2566,9 @@ Connect(Run.Heartbeat,function(dt)
 end)
 
 Connect(P.CharacterAdded,function()
+    if S.FruitFlight then
+        EndFruitFlight(false,"Character reset")
+    end
     ClearFlight()
     RestoreNoclip()
 
@@ -2286,7 +2596,8 @@ end)
 
 task.spawn(function()
     while S.Running do
-        if A.Farm then
+        if A.Farm and not S.FruitFlight
+            and not S.FruitPurchaseLock then
             local ok,err = pcall(UpdateQuest)
 
             if not ok and os.clock()-S.LastError > 3 then
@@ -2345,6 +2656,9 @@ local function Cleanup()
     A.Farm = false
     A.Chest = false
     A.Stats = false
+    Fruits.AutoRoll = false
+    S.FruitPurchaseLock = false
+    if S.FruitFlight then EndFruitFlight(false,"Hub closed") end
 
     Stop()
     ResetQuest()
@@ -2401,7 +2715,7 @@ end
 
 local Window = Lib:CreateWindow({
     Title = "Aevrix Hub",
-    SubTitle = "Blox Fruits Auto Farm",
+    SubTitle = "Auto Farm + Fruits",
 
     TabWidth = 145,
     Size = UDim2.fromOffset(650,455),
@@ -2422,6 +2736,11 @@ local FarmTab = Window:CreateTab({
 local ChestTab = Window:CreateTab({
     Title = "Auto Chest",
     Icon = "package"
+})
+
+local FruitsTab = Window:CreateTab({
+    Title = "Fruits",
+    Icon = "apple"
 })
 
 local ESPTab = Window:CreateTab({
@@ -2452,6 +2771,12 @@ local function Toggle(tab,id,title,key)
 
             elseif key == "Chest" then
                 SetChest(value)
+
+            elseif key == "AcceptBossQuest" then
+                A.AcceptBossQuest = value
+                if A.Farm and S.Quest and S.Quest.Boss then
+                    ResetQuest()
+                end
 
             else
                 A[key] = value
@@ -2497,6 +2822,10 @@ S.FarmToggle = Toggle(
     FarmTab,"Farm","Auto Farm","Farm"
 )
 
+Toggle(
+    FarmTab,"AcceptBossQuest","Accept Boss Quest","AcceptBossQuest"
+)
+
 Slider(
     FarmTab,"Target","Target Level",
     "TargetLevel",1,3000
@@ -2519,7 +2848,7 @@ Slider(
 
 Slider(
     FarmTab,"Delay","Attack Interval",
-    "Delay",0.05,1,2
+    "Delay",0.005,1,2
 )
 
 Toggle(
@@ -2592,6 +2921,58 @@ Slider(
     "Points",1,100
 )
 
+-- Fruits tab
+
+local function FruitParagraph(id,title,initial)
+    Fruits.Paragraphs[id] = FruitsTab:CreateParagraph(id,{
+        Title = title, Content = initial
+    })
+end
+
+FruitParagraph("FruitStock","Fruits In Stock","Loading...")
+FruitParagraph("FruitRestock","Next Stock Refresh","Loading...")
+FruitParagraph("FruitCooldown","Next Fruit Roll","Checking...")
+
+Fruits.Toggle = FruitsTab:CreateToggle("AutoRollFruit",{
+    Title = "Auto Roll Fruit",
+    Default = false,
+    Callback = function(value)
+        Fruits.AutoRoll = value
+        if value then Fruits.NextCheck = 0 end
+        if not value and S.FruitFlight and S.FruitFlight.Automatic then
+            EndFruitFlight(false,"Auto Roll disabled")
+        end
+    end
+})
+
+FruitsTab:CreateButton({
+    Title = "Fly to Blox Fruit Gacha",
+    Callback = function()
+        local flight,err = BeginFruitFlight("Gacha",false)
+        if not flight then Notify("Fruits",err) end
+    end
+})
+
+FruitsTab:CreateButton({
+    Title = "Fly to Blox Fruit Dealer",
+    Callback = function()
+        local flight,err = BeginFruitFlight("Dealer",false)
+        if not flight then Notify("Fruits",err) end
+    end
+})
+
+FruitsTab:CreateButton({
+    Title = "Stop Flight",
+    Callback = function()
+        if S.FruitFlight then
+            if S.FruitFlight.Automatic then StopFruitAuto() end
+            EndFruitFlight(false,"Flight cancelled")
+        end
+    end
+})
+
+task.spawn(FruitScheduler)
+
 local Hotkeys = {}
 
 for key in ("ABCDEFGHIJKLMNOPQRSTUVWXYZ"):gmatch(".") do
@@ -2609,5 +2990,4 @@ Drop(
 
 Window:SelectTab(1)
 
-Notify("Loaded","Blox Fruits Auto Farm")
-print("[Aevrix Hub] Loaded")
+Notify("Loaded","Auto Farm + Fruits")
