@@ -1,4 +1,4 @@
--- Aevrix Hub V13 | Auto Farm + Fruits + PvP
+
 
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
@@ -23,6 +23,8 @@ local Net = RS:FindFirstChild("Modules")
 Net = Net and Net:FindFirstChild("Net")
 local RegisterAttack = Net and Net:FindFirstChild("RE/RegisterAttack")
 local RegisterHit = Net and Net:FindFirstChild("RE/RegisterHit")
+
+local BossActive = false
 
 local A = {
     Farm=false,AcceptBossQuest=false,Chest=false,
@@ -147,7 +149,7 @@ local function BossAlive(name)
 end
 local function Moving()
     return S.Running and (
-        A.Farm or A.Chest or S.FruitFlight~=nil
+        A.Farm or A.Chest or BossActive or S.FruitFlight~=nil
         or S.FruitPurchaseLock==true or S.PvPFlight~=nil
     )
 end
@@ -1460,8 +1462,8 @@ local function EndFruitFlight(success,message)
     end
 end
 local function BeginFruitFlight(kind,automatic)
-    if S.FruitFlight or S.PvPFlight then
-        return nil,"Flight already active"
+    if S.FruitFlight or S.PvPFlight or BossActive then
+        return nil,"Stop Boss Farm or existing flight first"
     end
     local _,_,hrp=Char()
     if not hrp then return nil,"Character not ready" end
@@ -1625,7 +1627,7 @@ end
 
 local function FruitRollCycle()
     if Fruits.RollBusy or not Fruits.AutoRoll or not Fruits.Ready
-        or not S.Running or S.FruitFlight or S.PvPFlight
+        or not S.Running or S.FruitFlight or S.PvPFlight or BossActive
         or os.clock()<Fruits.NextAttempt then return end
     Fruits.RollBusy=true
     S.FruitPurchaseLock=true
@@ -1808,7 +1810,7 @@ local function EndPvPFlight(message)
     end
 end
 local function StartPvPFlight()
-    if S.PvPFlight or S.FruitFlight or S.FruitPurchaseLock then
+    if S.PvPFlight or S.FruitFlight or S.FruitPurchaseLock or BossActive then
         Notify("PvP","Stop the existing flight or wait for Auto Roll")
         return
     end
@@ -1887,8 +1889,10 @@ local function SyncToggle(toggle,value)
     pcall(function() toggle:SetValue(value) end)
     S.Updating=false
 end
+local BossForceStop
 local function SetFarm(enabled)
     if A.Farm==enabled then return end
+    if enabled and BossForceStop then BossForceStop() end
     if enabled and A.Chest then
         A.Chest=false
         SyncToggle(S.ChestToggle,false)
@@ -1904,6 +1908,7 @@ local function SetFarm(enabled)
 end
 local function SetChest(enabled)
     if A.Chest==enabled then return end
+    if enabled and BossForceStop then BossForceStop() end
     if enabled and A.Farm then
         A.Farm=false
         SyncToggle(S.FarmToggle,false)
@@ -1921,6 +1926,404 @@ local function SetChest(enabled)
     Notify(enabled and "Auto Chest Enabled"
         or "Auto Chest Disabled","Aevrix Hub")
 end
+-- BOSS FARM ENGINE | integrated with the main hub's flight/noclip/controller
+local BossNames={}
+for name in ("thegorillaking,bobby,yeti,mobleader,viceadmiral,warden,chiefwarden,swan,magmaadmiral,fishmanlord,wysper,thundergod,cyborg,saberexpert,thesaw,greybeard,iceadmiral,diamond,jeremy,fajita,donswan,smokeadmiral,awakenediceadmiral,tidekeeper,darkbeard,cursedcaptain,order,stone,islandempress,kiloadmiral,captainelephant,beautifulpirate,longma,soulreaper,cakequeen,cakeprince,doughking,doughprince,urban,diablo,deandre,ripindratrueform"):gmatch("[^,]+") do
+    BossNames[name]=true
+end
+local BossChoices={"The Gorilla King","Bobby","Yeti","Mob Leader","Vice Admiral","Warden","Chief Warden","Swan","Magma Admiral","Fishman Lord","Wysper","Thunder God","Cyborg","Saber Expert","The Saw","Greybeard","Ice Admiral","Diamond","Jeremy","Fajita","Don Swan","Smoke Admiral","Awakened Ice Admiral","Tide Keeper","Darkbeard","Cursed Captain","Order","Stone","Island Empress","Kilo Admiral","Captain Elephant","Beautiful Pirate","Longma","Soul Reaper","Cake Queen","Cake Prince","Dough King","Dough Prince","rip_indra True Form","Urban","Diablo","Deandre"}
+local B={
+    Enabled=false,Lock=nil,Serial=0,Cache={},Memory={},Route={},RouteIndex=1,
+    Checked={},Ignored={},Excluded={cyborg=true},Checking=false,ScanBusy=false,
+    CheckEpoch=0,NextQuick=0,NextFull=0,NextRoute=0,NextDistance=0,
+    NextAura=0,NextQuest=0,QuestBusy=false,QuestLock=nil,
+    LastHP=nil,RetreatUntil=0,Side=1,Travel=nil,AttackAt=0,
+    Info={},Shown={},BlacklistDropdown=nil,Toggle=nil,SeaTravel=false
+}
+local BConfig={Speed=260,Behind=35,Height=12,Range=55,Near=180,Cruise=300,Skip=180,Check=0.25}
+local function BKey(name)
+    local raw=tostring(name or ""):lower()
+    if raw:find("rip_indra",1,true) then
+        return (raw:find("true form",1,true) or raw:find("raid boss",1,true)) and "ripindratrueform" or "ripindra"
+    end
+    return Normal(name)
+end
+local function BShow(id,value)
+    value=tostring(value)
+    if B.Shown[id]==value then return end
+    B.Shown[id]=value
+    local p=B.Info[id]
+    if p then pcall(function() p:SetValue(value) end) end
+end
+local function BStatus(v) BShow("Status",v) end
+local function BRoot(m) return Root(m) end
+local function BHum(m) return m and m:FindFirstChildOfClass("Humanoid") end
+local function BAlive(m)
+    if not m or not m:IsA("Model") or not m:IsDescendantOf(workspace) or Players:GetPlayerFromCharacter(m) then return false end
+    local h=BHum(m)
+    return h and h.Health>0 and BRoot(m)~=nil or false
+end
+local function BRecognized(m)
+    if not BAlive(m) or BKey(m.Name)=="ripindra" then return false end
+    local raw=m.Name:lower()
+    if raw:find("[boss]",1,true) or raw:find("[raid boss]",1,true) or BossNames[BKey(m.Name)] then return true end
+    for _,a in ipairs({"Boss","IsBoss","RaidBoss","IsRaidBoss"}) do
+        if m:GetAttribute(a)==true then return true end
+    end
+    local h=BHum(m)
+    local title=h and h.DisplayName or ""
+    return title:lower():find("[boss]",1,true)~=nil or title:lower():find("[raid boss]",1,true)~=nil
+end
+local function BRemember(m)
+    local r=BRoot(m)
+    if r then B.Memory[BKey(m.Name)]={Name=m.Name,Position=r.Position} end
+end
+local function BCache(m)
+    if BRecognized(m) then B.Cache[m]=true BRemember(m) end
+end
+local function BEligible(m)
+    if not BRecognized(m) or B.Excluded[BKey(m.Name)] then return false end
+    local r=BRoot(m)
+    local k=BKey(m.Name)..":"..math.floor(r.Position.X/160)..":"..math.floor(r.Position.Z/160)
+    return os.clock()>=(B.Ignored[m] or 0) and os.clock()>=(B.Ignored[k] or 0)
+end
+local function BNearest(pos,radius,key,exclude)
+    local best,dist=nil,math.huge
+    for m in pairs(B.Cache) do
+        if m~=exclude and BEligible(m) and (not key or BKey(m.Name)==key) then
+            local d=(BRoot(m).Position-pos).Magnitude
+            if d<dist and (not radius or d<=radius) then best,dist=m,d end
+        end
+    end
+    return best
+end
+local function BCount()
+    local n=0 for m in pairs(B.Cache) do if BEligible(m) then n=n+1 end end
+    return n
+end
+local function BScan(full)
+    local folder=workspace:FindFirstChild("Enemies")
+    if folder then
+        for _,m in ipairs(folder:GetDescendants()) do
+            if m:IsA("Model") and (BossNames[BKey(m.Name)] or m.Name:lower():find("[boss]",1,true)) then BCache(m) end
+        end
+    end
+    if full and not B.ScanBusy then
+        B.ScanBusy=true
+        for _,m in ipairs(workspace:GetDescendants()) do
+            if m:IsA("Model") and (BossNames[BKey(m.Name)] or m.Name:lower():find("[boss]",1,true) or m:GetAttribute("Boss")==true or m:GetAttribute("IsBoss")==true) then BCache(m) end
+        end
+        B.ScanBusy=false
+    end
+    for m in pairs(B.Cache) do if not m:IsDescendantOf(workspace) then B.Cache[m]=nil end end
+    BShow("Detection",string.format("%s | Alive: %d | Spawns: %d",({[2753915549]="First Sea",[4442272183]="Second Sea",[7449423635]="Third Sea"})[game.PlaceId] or "Unknown Sea",BCount(),#B.Route))
+end
+local function BRoute()
+    if B.Lock or B.Checking then return end
+    local old=B.Route[B.RouteIndex]
+    local oldKey=old and old.Key
+    local route,seen={},{}
+    local function add(name,pos)
+        if typeof(pos)~="Vector3" or B.Excluded[BKey(name)] then return end
+        local key=math.floor(pos.X/120)..":"..math.floor(pos.Z/120)
+        if seen[key] then return end
+        seen[key]=true
+        route[#route+1]={Name=tostring(name),Position=pos,Key=key}
+    end
+    for _,info in pairs(B.Memory) do add(info.Name,info.Position) end
+    for _,v in ipairs(workspace:GetDescendants()) do
+        if v:IsA("BasePart") or v:IsA("Attachment") then
+            local n=v.Name:lower()
+            if v:GetAttribute("Boss")==true or v:GetAttribute("IsBoss")==true or n:find("bossspawn",1,true) or n:find("spawn_boss",1,true) then
+                add(v.Name,v:IsA("Attachment") and v.WorldPosition or v.Position)
+            end
+        end
+    end
+    if #route==0 then
+        local origin=workspace:FindFirstChild("_WorldOrigin")
+        local locations=origin and origin:FindFirstChild("Locations")
+        if locations then
+            for _,v in ipairs(locations:GetChildren()) do
+                if v:IsA("BasePart") or v:IsA("Attachment") then add(v.Name,v:IsA("Attachment") and v.WorldPosition or v.Position) end
+            end
+        end
+    end
+    table.sort(route,function(a,b) return a.Name==b.Name and a.Key<b.Key or a.Name<b.Name end)
+    B.Route=route
+    B.RouteIndex=math.min(B.RouteIndex,math.max(#route,1))
+    if oldKey then for i,item in ipairs(route) do if item.Key==oldKey then B.RouteIndex=i break end end end
+end
+local function BNextSpawn()
+    local count=#B.Route
+    for _=1,count do
+        if B.RouteIndex>count then B.RouteIndex=1 end
+        local item=B.Route[B.RouteIndex]
+        B.RouteIndex=B.RouteIndex%count+1
+        if not B.Excluded[BKey(item.Name)] and os.clock()>=(B.Checked[item.Key] or 0) then return item end
+    end
+end
+local function BDirect(goal,face)
+    local _,_,r=Char()
+    if not r or not Flight() then return end
+    local d=goal-r.Position
+    S.Velocity=d.Magnitude>1 and d.Unit*math.min(BConfig.Speed,d.Magnitude*20) or Vector3.zero
+    S.BV.Velocity=S.Velocity
+    if face then
+        local f=Vector3.new(face.X-r.Position.X,0,face.Z-r.Position.Z)
+        if f.Magnitude>0.05 then S.BG.CFrame=CFrame.lookAt(r.Position,r.Position+f.Unit) end
+    end
+end
+local function BTravel(goal,face)
+    local _,_,r=Char() if not r then return end
+    local dx=Vector3.new(r.Position.X-goal.X,0,r.Position.Z-goal.Z).Magnitude
+    if dx<=BConfig.Near then B.Travel=nil BDirect(goal,face) return end
+    if not B.Travel then B.Travel={Phase="Climb",Y=math.max(BConfig.Cruise,r.Position.Y+85,goal.Y+100)} end
+    local t=B.Travel
+    if t.Phase=="Climb" then
+        BDirect(Vector3.new(r.Position.X,t.Y,r.Position.Z),face)
+        if r.Position.Y>=t.Y-8 then t.Phase="Cruise" end
+    else BDirect(Vector3.new(goal.X,t.Y,goal.Z),face) end
+end
+local function BRelease(manual,blacklist)
+    local l=B.Lock if not l then return end
+    B.Ignored[l.Model]=os.clock()+(manual and BConfig.Skip or 15)
+    if manual then
+        local key=BKey(l.Name)..":"..math.floor(l.Position.X/160)..":"..math.floor(l.Position.Z/160)
+        B.Ignored[key]=os.clock()+BConfig.Skip
+    end
+    B.Lock=nil B.QuestLock=nil B.Travel=nil B.RetreatUntil=0
+    BShow("Target","None") BShow("Distance","No boss selected")
+    BStatus(blacklist and "Blacklisted boss; finding next" or (manual and "Boss skipped; finding next" or "Boss defeated; finding next"))
+end
+local function BSelect(m)
+    if B.Lock or not BEligible(m) then return false end
+    B.Serial=B.Serial+1
+    B.Lock={ID=B.Serial,Model=m,Name=m.Name,Key=BKey(m.Name),Position=BRoot(m).Position,HP=BHum(m).Health,LastDamage=os.clock()}
+    B.Travel=nil B.QuestLock=nil B.NextQuest=0 B.RetreatUntil=0
+    BShow("Target",m.Name) BStatus("LOCKED: "..m.Name)
+    return true
+end
+local function BLocked()
+    local l=B.Lock if not l then return end
+    if B.Excluded[l.Key] then BRelease(false,true) return end
+    local h=BHum(l.Model)
+    if h and h.Health<=0 then BRelease(false,false) return end
+    if BRecognized(l.Model) then l.Position=BRoot(l.Model).Position return l.Model end
+    local recovered=BNearest(l.Position,350,l.Key,l.Model)
+    if recovered then l.Model=recovered l.Position=BRoot(recovered).Position l.HP=BHum(recovered).Health return recovered end
+    BStatus("Waiting for locked boss: "..l.Name)
+end
+local function BSkip()
+    if B.Lock then BRelease(true,false) else BStatus("No current boss to skip") end
+end
+local function BSet(on)
+    if B.Enabled==on then return end
+    B.Enabled=on BossActive=on B.CheckEpoch=B.CheckEpoch+1 B.Checking=false B.Lock=nil B.Travel=nil B.LastHP=nil B.QuestLock=nil
+    if on then
+        if A.Farm then SetFarm(false) end
+        if A.Chest then SetChest(false) end
+        B.Checked={} B.NextQuick=0 B.NextFull=0 B.NextRoute=0
+        BShow("Target","None") BShow("Distance","No boss selected") BStatus("Scanning loaded bosses...")
+        if S.FruitFlight or S.PvPFlight or S.FruitPurchaseLock then
+            B.Enabled=false BossActive=false
+            BStatus("Stop fruit/PvP flight before boss farming")
+            if B.Toggle then pcall(function() B.Toggle:SetValue(false) end) end
+            return
+        end
+        Flight()
+    else
+        BShow("Target","None") BShow("Distance","Farm disabled") BStatus("Stopped")
+        if not (A.Farm or A.Chest or S.FruitFlight or S.PvPFlight or S.FruitPurchaseLock) then Stop() end
+    end
+end
+BossForceStop=function()
+    BSet(false)
+    if A.Farm then SetFarm(false) end
+    if A.Chest then SetChest(false) end
+    Fruits.AutoRoll=false
+    if S.FruitFlight then EndFruitFlight(false,"Sea travel") end
+    if S.PvPFlight then EndPvPFlight("Sea travel") end
+    if B.Toggle then pcall(function() B.Toggle:SetValue(false) end) end
+end
+local function BQuest(m)
+    local l=B.Lock
+    if not l or B.QuestBusy or B.QuestLock==l.ID or os.clock()<B.NextQuest or QuestVisible() then return end
+    local chosen
+    for _,q in ipairs(QuestList) do
+        if tonumber(q.Count)==1 and Normal(q.Enemy)==Normal(m.Name) and q.LevelReq<=Level() then chosen=q break end
+    end
+    if not chosen then B.NextQuest=os.clock()+20 return end
+    local id,epoch=l.ID,B.CheckEpoch
+    B.QuestBusy=true B.NextQuest=os.clock()+10
+    task.spawn(function()
+        local ok,result=pcall(function() return Comm:InvokeServer("StartQuest",chosen.ID,chosen.Index) end)
+        B.QuestBusy=false
+        if ok and result~=false and B.Enabled and B.CheckEpoch==epoch and B.Lock and B.Lock.ID==id then B.QuestLock=id end
+    end)
+end
+local function BAura()
+    if not B.Enabled or os.clock()<B.NextAura then return end
+    local c=Char() if not c then return end
+    B.NextAura=os.clock()+3
+    if c:FindFirstChild("HasBuso") or c:GetAttribute("HasBuso")==true then BShow("Aura","Enabled") return end
+    if B.AuraBusy then return end
+    B.AuraBusy=true BShow("Aura","Enabling...")
+    task.spawn(function()
+        local ok=pcall(function() Comm:InvokeServer("Buso") end)
+        B.AuraBusy=false
+        if B.Enabled then BShow("Aura",ok and "Checking..." or "Retrying...") end
+    end)
+end
+local function BAttack(m)
+    if not RegisterAttack or not RegisterHit or not RegisterAttack:IsA("RemoteEvent") or not RegisterHit:IsA("RemoteEvent") then return false,"Attack remotes unavailable" end
+    local _,_,r=Char()
+    if not r or (r.Position-BRoot(m).Position).Magnitude>BConfig.Range then return false,"Out of range" end
+    local c,h=Char()
+    local tool
+    for _,t in ipairs(c:GetChildren()) do if t:IsA("Tool") and (t:GetAttribute("WeaponType")=="Melee" or t:GetAttribute("WeaponType")=="FightingStyle" or Melee[Normal(t.Name)] or (t.ToolTip or ""):lower()=="melee") then tool=t break end end
+    if not tool then
+        local backpack=P:FindFirstChild("Backpack")
+        if backpack then
+            for _,t in ipairs(backpack:GetChildren()) do
+                if t:IsA("Tool") and (t:GetAttribute("WeaponType")=="Melee" or Melee[Normal(t.Name)]) then
+                    h:EquipTool(t) tool=t break
+                end
+            end
+        end
+    end
+    if not tool then return false,"Melee unavailable" end
+    local part=m:FindFirstChild("Head") or BRoot(m)
+    local ok=pcall(function() RegisterAttack:FireServer(0.1) RegisterHit:FireServer(part,{{m,part}}) end)
+    return ok,ok and "Sent" or "Attack error"
+end
+local function BCheckSpawn()
+    if B.Checking or B.Lock or not B.Enabled then return end
+    local _,_,root=Char() if not root then return end
+    local found=BNearest(root.Position)
+    if found then BSelect(found) return end
+    local loc=BNextSpawn()
+    if not loc then BStatus("No known boss spawns; awaiting loaded bosses") return end
+    B.Checking=true
+    local epoch=B.CheckEpoch
+    BStatus("Checking spawn: "..loc.Name)
+    task.spawn(function()
+        local c,h,r=Char()
+        local candidate
+        if r then
+            local saved=r.CFrame
+            ClearFlight()
+            pcall(function()
+                r.CFrame=CFrame.new(loc.Position+Vector3.new(0,25,0))
+                r.AssemblyLinearVelocity=Vector3.zero
+                local deadline=os.clock()+BConfig.Check
+                repeat
+                    BScan(false)
+                    candidate=BNearest(loc.Position,225)
+                    if candidate then break end
+                    Run.Heartbeat:Wait()
+                until not S.Running or not B.Enabled or B.CheckEpoch~=epoch or os.clock()>=deadline
+            end)
+            if P.Character==c and h.Health>0 and r.Parent then
+                pcall(function() r.CFrame=saved r.AssemblyLinearVelocity=Vector3.zero end)
+            end
+        end
+        if not S.Running or B.CheckEpoch~=epoch then return end
+        B.Checking=false B.Checked[loc.Key]=os.clock()+8
+        if not B.Enabled or B.Lock then return end
+        local _,_,current=Char()
+        local target=current and BNearest(current.Position) or candidate
+        if target then BSelect(target) elseif candidate and BEligible(candidate) then BSelect(candidate) else BStatus("No eligible boss at "..loc.Name) end
+    end)
+end
+local function BUpdate(dt)
+    if not B.Enabled or B.SeaTravel or B.Checking then return end
+    local _,h,r=Char() if not r then return end
+    local now=os.clock()
+    if now>=B.NextQuick then B.NextQuick=now+0.7 BScan(false) end
+    if now>=B.NextFull and not B.ScanBusy then B.NextFull=now+6 task.defer(function() if B.Enabled and not B.Checking then pcall(BScan,true) end end) end
+    if not B.Lock and now>=B.NextRoute then B.NextRoute=now+35 task.defer(function() if B.Enabled and not B.Lock then pcall(BRoute) end end) end
+    if B.LastHP and h.Health<B.LastHP then B.RetreatUntil=now+2.5 B.Side=-B.Side end
+    B.LastHP=h.Health
+    local m
+    if B.Lock then
+        m=BLocked()
+        if B.Lock and not m then
+            B.Travel=nil
+            if (r.Position-B.Lock.Position).Magnitude>20 then BDirect(B.Lock.Position) else Hold() end
+        end
+    end
+    if not B.Lock then
+        m=BNearest(r.Position)
+        if m then BSelect(m) else BCheckSpawn() end
+    end
+    local l=B.Lock
+    if l and m and l.Model==m and BAlive(m) then
+        local br=BRoot(m)
+        BQuest(m)
+        local goal
+        local dodge=now<B.RetreatUntil
+        if dodge then
+            goal=br.Position-br.CFrame.LookVector*85+br.CFrame.RightVector*(40*B.Side)+Vector3.new(0,65,0)
+        else
+            local forward=br.CFrame.LookVector
+            local dir=Vector3.new(forward.X,0,forward.Z)
+            dir=dir.Magnitude>0.01 and dir.Unit or Vector3.new(0,0,-1)
+            goal=br.Position-dir*BConfig.Behind+Vector3.new(0,BConfig.Height,0)
+        end
+        BTravel(goal,br.Position)
+        local hit,why=false,"Retreating"
+        if not dodge then hit,why=BAttack(m) end
+        local hp=BHum(m).Health
+        if hp<l.HP then l.LastDamage=now end
+        l.HP=hp
+        if hp<=0 then BRelease(false,false)
+        elseif dodge then BStatus("Locked: retreating from "..l.Name)
+        elseif (r.Position-br.Position).Magnitude>BConfig.Range then BStatus("Locked: approaching "..l.Name)
+        elseif not hit then BStatus("Locked: "..tostring(why))
+        elseif now-l.LastDamage>5 then BStatus("Locked: attacking; no damage detected")
+        else BStatus("Locked: attacking "..l.Name) end
+    end
+    if now>=B.NextDistance then
+        B.NextDistance=now+0.2
+        if B.Lock then
+            local br=B.Lock.Model and BAlive(B.Lock.Model) and BRoot(B.Lock.Model)
+            local pos=br and br.Position or B.Lock.Position
+            BShow("Distance",(br and "Distance: " or "Last known: ")..math.floor((r.Position-pos).Magnitude+0.5).." studs")
+        else BShow("Distance","No boss selected") end
+    end
+end
+local function BBlacklistUpdate(selected)
+    local exclusions={}
+    if type(selected)=="table" then
+        for k,v in pairs(selected) do
+            local name=(type(k)=="number" and type(v)=="string") and v or (type(k)=="string" and v==true and k or nil)
+            if name then exclusions[BKey(name)]=true end
+        end
+    end
+    B.Excluded=exclusions
+    if B.Lock and B.Excluded[B.Lock.Key] then BRelease(false,true) end
+    B.NextRoute=0
+end
+local function BChangeSea(name)
+    local destinations={
+        ["First Sea"]={2753915549,"TravelMain"},
+        ["Second Sea"]={4442272183,"TravelDressrosa"},
+        ["Third Sea"]={7449423635,"TravelZou"}
+    }
+    local data=destinations[name]
+    if not data or B.SeaTravel then return end
+    if game.PlaceId==data[1] then BShow("SeaStatus","Already in "..name) return end
+    BSet(false)
+    if B.Toggle then pcall(function() B.Toggle:SetValue(false) end) end
+    B.SeaTravel=true
+    BShow("SeaStatus","Requesting "..name.."...")
+    task.spawn(function()
+        local ok,result=pcall(function() return Comm:InvokeServer(data[2]) end)
+        if S.Running then BShow("SeaStatus",not ok and ("Travel error: "..tostring(result)) or result==false and "Travel rejected by game" or ("Travel requested: "..name)) end
+        B.SeaTravel=false
+    end)
+end
+
 local function Connect(signal,callback)
     table.insert(S.Connections,signal:Connect(callback))
 end
@@ -1932,6 +2335,7 @@ end)
 Connect(Run.Heartbeat,function(dt)
     if not Moving() then return end
     local ok,err=pcall(function()
+        if B.Checking then return end
         if not Flight() then return end
 
         if S.PvPFlight then
@@ -1940,6 +2344,8 @@ Connect(Run.Heartbeat,function(dt)
             UpdateFruitFlight(dt)
         elseif S.FruitPurchaseLock then
             Hold()
+        elseif BossActive then
+            BUpdate(dt)
         elseif A.Chest then
             UpdateChest(dt)
         elseif A.Farm and not UpdateFarm(dt) then
@@ -1953,6 +2359,8 @@ Connect(Run.Heartbeat,function(dt)
 end)
 
 Connect(P.CharacterAdded,function()
+    B.CheckEpoch=B.CheckEpoch+1 B.Checking=false B.Lock=nil B.Travel=nil B.LastHP=nil
+    BShow("Target","None") BShow("Distance","No boss selected")
     if S.PvPFlight then EndPvPFlight("Character reset") end
     if S.FruitFlight then
         EndFruitFlight(false,"Character reset")
@@ -2022,6 +2430,7 @@ local function Cleanup()
     A.Farm=false
     A.Chest=false
     A.Stats=false
+    B.Enabled=false BossActive=false B.CheckEpoch=B.CheckEpoch+1
     Fruits.AutoRoll=false
     S.FruitPurchaseLock=false
     if S.FruitFlight then EndFruitFlight(false,"Hub closed") end
@@ -2066,7 +2475,7 @@ end
 
 local Window=Lib:CreateWindow({
     Title="Aevrix Hub",
-    SubTitle="Auto Farm + Fruits + PvP V13",
+    SubTitle="Combined V18 | Boss Farm + Main Hub",
     TabWidth=145,
     Size=UDim2.fromOffset(650,455),
     Resize=true,
@@ -2077,6 +2486,8 @@ local Window=Lib:CreateWindow({
 })
 
 local FarmTab=Window:CreateTab({Title="Auto Farm",Icon="swords"})
+local BossTab=Window:CreateTab({Title="Boss Farm",Icon="target"})
+local SeaTab=Window:CreateTab({Title="Sea Travel",Icon="ship"})
 local ChestTab=Window:CreateTab({Title="Auto Chest",Icon="package"})
 local FruitsTab=Window:CreateTab({Title="Fruits",Icon="apple"})
 local PvPTab=Window:CreateTab({Title="PvP",Icon="swords"})
@@ -2154,6 +2565,44 @@ FarmTab:CreateParagraph("SkillsWarning",{
 })
 Slider(FarmTab,"SkillCooldown",
     "Skill Cooldown","SkillCooldown",1,30)
+
+
+-- BOSS FARM / BLACKLIST UI (inside the integrated window)
+for _,spec in ipairs({
+    {"Target","Current Boss","None"},
+    {"Status","Boss Farm Status","Stopped"},
+    {"Distance","Distance to Boss","Farm disabled"},
+    {"Detection","Boss Detection","Waiting"},
+    {"Aura","Aura Status","Waiting"}
+}) do
+    B.Info[spec[1]]=BossTab:CreateParagraph("Boss"..spec[1],{
+        Title=spec[2],Content=spec[3]
+    })
+end
+B.Toggle=BossTab:CreateToggle("AutoBossFarm",{
+    Title="Auto Boss Farm",Default=false,Callback=BSet
+})
+BossTab:CreateButton({Title="Skip Current Boss",Description="Skip for 3 minutes",Callback=BSkip})
+BossTab:CreateParagraph("BlacklistInstructions",{
+    Title="Boss Blacklist",Content="Choose bosses to skip. Cyborg starts excluded. Noncombat rip_indra is never targeted."
+})
+B.BlacklistDropdown=BossTab:CreateDropdown("BossBlacklist",{
+    Title="Blacklisted Bosses",Values=BossChoices,Multi=true,
+    Default={"Cyborg"},Callback=BBlacklistUpdate
+})
+BossTab:CreateButton({Title="Clear Blacklist",Callback=function()
+    B.BlacklistDropdown:SetValue({}) BBlacklistUpdate({})
+end})
+BossTab:CreateButton({Title="Restore Default Blacklist",Callback=function()
+    local values={Cyborg=true}
+    B.BlacklistDropdown:SetValue(values) BBlacklistUpdate(values)
+end})
+B.Info.SeaStatus=SeaTab:CreateParagraph("SeaStatus",{
+    Title="Sea Travel Status",Content="Current Sea: "..(({[2753915549]="First Sea",[4442272183]="Second Sea",[7449423635]="Third Sea"})[game.PlaceId] or "Unknown Sea")
+})
+for _,sea in ipairs({"First Sea","Second Sea","Third Sea"}) do
+    SeaTab:CreateButton({Title="Go to "..sea,Callback=function() BChangeSea(sea) end})
+end
 
 -- AUTO CHEST TAB
 
@@ -2302,5 +2751,5 @@ end
 Drop(SettingsTab,"Hotkey","Auto Farm Hotkey","Hotkey",Hotkeys)
 
 Window:SelectTab(1)
-Notify("Loaded","Auto Farm + Fruits + PvP V13")
-print("[Aevrix Hub V13] Loaded")
+Notify("Loaded","Combined Main Hub + Boss Farm V18")
+print("[Aevrix Hub V18] Combined hub loaded")
