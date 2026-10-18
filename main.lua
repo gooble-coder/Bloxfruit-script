@@ -1,4 +1,4 @@
-
+-- Aevrix Hub V13 | Auto Farm + Fruits + PvP
 
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
@@ -2475,7 +2475,7 @@ end
 
 local Window=Lib:CreateWindow({
     Title="Aevrix Hub",
-    SubTitle="Combined V18 | Boss Farm + Main Hub",
+    SubTitle="Blox Fruits",
     TabWidth=145,
     Size=UDim2.fromOffset(650,455),
     Resize=true,
@@ -2751,5 +2751,5 @@ end
 Drop(SettingsTab,"Hotkey","Auto Farm Hotkey","Hotkey",Hotkeys)
 
 Window:SelectTab(1)
-Notify("Loaded","Combined Main Hub + Boss Farm V18")
-print("[Aevrix Hub V18] Combined hub loaded")
+Notify("Loaded","Aevrix Hub")
+print("[Aevrix Hub ] Aevrix hub loaded")
